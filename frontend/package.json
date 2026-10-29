@@ -1,0 +1,37 @@
+{
+  "name": "cinema-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@11.10.1",
+  "workspaces": [
+    "manager",
+    "staff",
+    "customer",
+    "shared"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev:manager": "npm run dev --workspace=@cinema/manager",
+    "dev:staff": "npm run dev --workspace=@cinema/staff",
+    "dev:customer": "npm run dev --workspace=@cinema/customer",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18",
+    "@playwright/test": "^1.58.2"
+  }
+}

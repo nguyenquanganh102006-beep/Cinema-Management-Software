@@ -1,0 +1,5 @@
+{
+  "name": "@cinema/shared", "version": "0.1.0", "private": true,
+  "type": "module", "exports": {".": "./src/App.tsx", "./styles.css": "./src/styles.css"},
+  "peerDependencies": {"react": "19.3.1", "react-dom": "19.3.1"}
+}
