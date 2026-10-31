@@ -68,7 +68,7 @@ public class SeatService {
         }
     }
 
-    private static ApiException seatNotFound() { return new ApiException(404, "SEAT_NOT_FOUND", "Không tìm thấy ghế"); }
+    static ApiException seatNotFound() { return new ApiException(404, "SEAT_NOT_FOUND", "Không tìm thấy ghế"); }
     private static RuntimeException translate(DataIntegrityViolationException e) {
         return ConstraintViolations.violates(e, "uq_auditorium_seat") ? new ApiException(409, "SEAT_POSITION_TAKEN", "Vị trí ghế vừa được tạo bởi thao tác khác") : e;
     }

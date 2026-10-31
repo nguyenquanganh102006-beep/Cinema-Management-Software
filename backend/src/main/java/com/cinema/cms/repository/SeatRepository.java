@@ -16,6 +16,8 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     boolean existsByAuditoriumIdAndSeatRowAndSeatNumberAndIdNot(Integer auditoriumId, String seatRow, int seatNumber, Long id);
     boolean existsByPairSeatId(Long pairSeatId);
 
+    Optional<Seat> findByPairSeatId(Long pairSeatId);
+
     @Query("select s.auditoriumId from Seat s where s.id = :seatId")
     Optional<Integer> findAuditoriumIdBySeatId(@Param("seatId") Long seatId);
 

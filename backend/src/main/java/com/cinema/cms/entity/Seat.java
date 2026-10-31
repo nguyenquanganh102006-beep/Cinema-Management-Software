@@ -26,6 +26,9 @@ public class Seat {
         this.seatRow = seatRow; this.seatNumber = seatNumber; this.seatType = seatType;
     }
 
+    public void assignPair(Long pairSeatId) { this.pairSeatId = pairSeatId; }
+    public void clearPair() { this.pairSeatId = null; }
+
     public Long getId() { return id; }
     public Integer getAuditoriumId() { return auditoriumId; }
     public String getSeatRow() { return seatRow; }
