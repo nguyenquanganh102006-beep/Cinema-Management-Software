@@ -2,7 +2,7 @@
 
 Hệ thống quản lý và đặt vé rạp chiếu phim: Spring Boot + PostgreSQL, ba giao diện React cho Manager, Staff và Customer.
 
-Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Backend đã có Master Data và Showtime (Sprint C); các trang nghiệp vụ trên frontend còn là placeholder. Hold, bán vé và thanh toán thuộc các sprint tiếp theo.
+Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Các trang nghiệp vụ sau đăng nhập là placeholder; chưa có CRUD phim/phòng, lịch chiếu, bán vé hoặc thanh toán.
 
 ## Công cụ
 
@@ -112,9 +112,6 @@ docs/                 Bối cảnh, plan, API, schema, decision
 - [Quyết định triển khai](docs/decisions/001-foundation.md)
 - [Auth API](docs/api/auth.md)
 - [Schema bàn giao](docs/database/foundation-schema.md)
-- [Showtime API](docs/api/showtimes.md)
-- [Quyết định và ma trận yêu cầu Sprint C](docs/decisions/003-showtime.md)
-- [Báo cáo tích hợp, kiểm thử và cấu trúc Sprint C](docs/architecture/showtime-validation.md)
 - [Kết quả build/test và giới hạn kiểm chứng](docs/architecture/foundation-validation.md)
 
 Flyway quản lý schema; Hibernate chỉ validate. Không chạy nguyên SQL nguồn vì có DROP SCHEMA và seed chưa nhất quán. Migration đã chia sẻ phải được giữ nguyên, thêm version mới khi thay đổi.
