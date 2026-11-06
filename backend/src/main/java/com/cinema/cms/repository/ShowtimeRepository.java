@@ -8,6 +8,12 @@ import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
 public interface ShowtimeRepository extends JpaRepository<Showtime, Long>, JpaSpecificationExecutor<Showtime> {
+    boolean existsByAuditoriumId(Integer auditoriumId);
+
+    // Scalar read after inventory locks: do not reuse an Entity loaded before waiting.
+    @Query("select s.startTime from Showtime s where s.id = :id")
+    Optional<Instant> findCurrentStartTime(@Param("id") Long id);
+
     @Query("select s.auditoriumId from Showtime s where s.id = :id")
     Optional<Integer> findAuditoriumId(@Param("id") Long id);
 
