@@ -1,6 +1,6 @@
 # Sprint D — seat holding
 
-Ngày: 06/11/2026, Asia/Ho_Chi_Minh. Phạm vi triển khai lần này là backend Sprint D theo §2 của [PLAN](../PLAN.md), cùng các sửa nền layout/Sweetbox ở §5.3–5.4. Backend Booking/Payment/Ticket của E không thuộc phạm vi D.
+Ngày: 06/11/2026, Asia/Ho_Chi_Minh. Phạm vi triển khai lần này là backend Sprint D: sơ đồ ghế, giữ/gia hạn/giải phóng ghế, cleanup hold hết hạn và service bàn giao checkout; kèm guard layout và validator Sweetbox chung để bảo vệ tích hợp B/C/D. Contract được mô tả trong [API seat holding](../api/seat-holding.md), các ca kiểm chứng trong [kiểm thử Sprint D](../testing/sprint-d.md). Backend Booking/Payment/Ticket của E không thuộc phạm vi D.
 
 ## Hiệu lực và các quyết định được bổ sung/thay thế
 
@@ -52,7 +52,7 @@ Gia hạn cần Staff đang chờ chuyển khoản (`waitingForTransfer=true`), 
 
 ## Chốt các mục mở về layout và Sweetbox
 
-Sau khi phòng có **bất kỳ showtime nào**, kể cả quá khứ, thêm/sửa ghế hoặc pair/unpair bị từ chối bằng 409 `AUDITORIUM_LAYOUT_LOCKED`. Bản này chọn từ chối cả PATCH ghế không đổi field để giữ guard đơn giản; PLAN cho phép cách làm này. Đổi thông tin/trạng thái phòng vẫn theo B. Guard dùng exists query dưới khóa Auditorium mà C CREATE cũng giữ, nên race chỉ có hai kết quả: layout commit trước thì C lấy layout mới; C commit trước thì layout bị chặn.
+Sau khi phòng có **bất kỳ showtime nào**, kể cả quá khứ, thêm/sửa ghế hoặc pair/unpair bị từ chối bằng 409 `AUDITORIUM_LAYOUT_LOCKED`. Triển khai này từ chối cả PATCH ghế không đổi field để áp dụng cùng guard cho mọi thao tác sửa ghế. Đổi thông tin/trạng thái phòng vẫn theo B. Guard dùng exists query dưới khóa Auditorium mà C CREATE cũng giữ, nên race chỉ có hai kết quả: layout commit trước thì C lấy layout mới; C commit trước thì layout bị chặn.
 
 SweetboxPairValidator dùng chung ở B/C/D: khác ID, cùng phòng/hàng, cả hai SWEETBOX, số liền kề, pair hai chiều. Pair API từ chối candidate sai bằng 400 `SWEETBOX_PAIR_INVALID`; C từ chối layout legacy sai bằng 422; D từ chối bằng 409. Giữ 409 `SWEETBOX_ALREADY_PAIRED` khi ghế đã thuộc cặp. Một cặp luôn gồm hai seat IDs; E có trách nhiệm phát hành hai Ticket riêng khi thanh toán thành công.
 
