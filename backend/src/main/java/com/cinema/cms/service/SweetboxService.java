@@ -11,29 +11,34 @@ import java.util.*;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 @Service
 public class SweetboxService {
     private final AuditoriumRepository auditoriums;
     private final SeatRepository seats;
+    private final SeatLayoutGuard layoutGuard;
+    private final SweetboxPairValidator pairs;
 
-    public SweetboxService(AuditoriumRepository auditoriums, SeatRepository seats) { this.auditoriums = auditoriums; this.seats = seats; }
+    public SweetboxService(AuditoriumRepository auditoriums, SeatRepository seats, SeatLayoutGuard layoutGuard, SweetboxPairValidator pairs) {
+        this.auditoriums = auditoriums; this.seats = seats; this.layoutGuard = layoutGuard; this.pairs = pairs;
+    }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public SweetboxPairResponse pair(SweetboxPairRequest r) {
         if (r.seatId().equals(r.pairSeatId())) throw invalid("Hai ghế của một cặp phải khác nhau");
         Integer roomId = auditoriumOf(r.seatId());
         if (!roomId.equals(auditoriumOf(r.pairSeatId()))) throw invalid("Hai ghế của một cặp phải thuộc cùng một phòng");
         lockRoom(roomId);
         Seat first = load(r.seatId()), second = load(r.pairSeatId());
-        if (first.getSeatType() != SeatType.SWEETBOX || second.getSeatType() != SeatType.SWEETBOX) throw invalid("Cả hai ghế phải thuộc loại SWEETBOX");
         if (isPaired(first) || isPaired(second)) throw new ApiException(409, "SWEETBOX_ALREADY_PAIRED", "Một trong hai ghế đã thuộc một cặp Sweetbox khác");
+        if (!pairs.validateCandidate(first, second)) throw invalid("Sweetbox phải là hai ghế liền kề cùng hàng, cùng phòng và đúng loại");
         first.assignPair(second.getId());
         second.assignPair(first.getId());
         return save(List.of(first, second));
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public SweetboxPairResponse unpair(Long seatId) {
         Integer roomId = auditoriumOf(seatId);
         lockRoom(roomId);
@@ -59,7 +64,10 @@ public class SweetboxService {
     private boolean isPaired(Seat seat) { return seat.getPairSeatId() != null || seats.existsByPairSeatId(seat.getId()); }
     private Integer auditoriumOf(Long seatId) { return seats.findAuditoriumIdBySeatId(seatId).orElseThrow(SeatService::seatNotFound); }
     private Seat load(Long seatId) { return seats.findById(seatId).orElseThrow(SeatService::seatNotFound); }
-    private void lockRoom(Integer roomId) { auditoriums.findByIdForUpdate(roomId).orElseThrow(AuditoriumService::notFound); }
+    private void lockRoom(Integer roomId) {
+        auditoriums.findByIdForUpdate(roomId).orElseThrow(AuditoriumService::notFound);
+        layoutGuard.checkMutable(roomId);
+    }
     private static ApiException invalid(String message) { return new ApiException(400, "SWEETBOX_PAIR_INVALID", message); }
 
     private static RuntimeException translate(DataIntegrityViolationException e) {

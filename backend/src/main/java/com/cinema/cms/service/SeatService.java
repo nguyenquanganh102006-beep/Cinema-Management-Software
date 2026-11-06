@@ -11,13 +11,17 @@ import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 @Service
 public class SeatService {
     private final AuditoriumRepository auditoriums;
     private final SeatRepository seats;
+    private final SeatLayoutGuard layoutGuard;
 
-    public SeatService(AuditoriumRepository auditoriums, SeatRepository seats) { this.auditoriums = auditoriums; this.seats = seats; }
+    public SeatService(AuditoriumRepository auditoriums, SeatRepository seats, SeatLayoutGuard layoutGuard) {
+        this.auditoriums = auditoriums; this.seats = seats; this.layoutGuard = layoutGuard;
+    }
 
     @Transactional(readOnly = true)
     public List<SeatResponse> list(Integer auditoriumId) {
@@ -25,9 +29,10 @@ public class SeatService {
         return seats.findByAuditoriumIdOrderBySeatRowAscSeatNumberAsc(auditoriumId).stream().map(SeatResponse::from).toList();
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public List<SeatResponse> create(Integer auditoriumId, CreateSeatsRequest request) {
         Auditorium room = auditoriums.findByIdForUpdate(auditoriumId).orElseThrow(AuditoriumService::notFound);
+        layoutGuard.checkMutable(auditoriumId);
         Set<String> requested = new HashSet<>();
         for (SeatRequest s : request.seats()) {
             if (!requested.add(key(s.row(), s.number()))) throw new ApiException(400, "VALIDATION_ERROR", "Ghế " + s.row() + s.number() + " bị lặp trong yêu cầu");
@@ -48,10 +53,11 @@ public class SeatService {
         }
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public SeatResponse update(Long seatId, SeatRequest r) {
         Integer auditoriumId = seats.findAuditoriumIdBySeatId(seatId).orElseThrow(SeatService::seatNotFound);
         auditoriums.findByIdForUpdate(auditoriumId).orElseThrow(AuditoriumService::notFound);
+        layoutGuard.checkMutable(auditoriumId);
         Seat seat = seats.findById(seatId).orElseThrow(SeatService::seatNotFound);
         boolean changed = !seat.getSeatRow().equals(r.row()) || seat.getSeatNumber() != r.number() || seat.getSeatType() != r.type();
         if (changed && (seat.getPairSeatId() != null || seats.existsByPairSeatId(seatId))) {

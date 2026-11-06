@@ -37,7 +37,7 @@ public class SeatController {
     @ApiResponses({@ApiResponse(responseCode = "201", description = "Các ghế đã tạo"),
             @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: số ghế không dương, hàng sai định dạng, ghế lặp trong yêu cầu, danh sách rỗng hoặc quá 500"),
             @ApiResponse(responseCode = "404", description = "AUDITORIUM_NOT_FOUND"),
-            @ApiResponse(responseCode = "409", description = "SEAT_POSITION_TAKEN hoặc AUDITORIUM_CAPACITY_EXCEEDED")})
+            @ApiResponse(responseCode = "409", description = "AUDITORIUM_LAYOUT_LOCKED hoặc SEAT_POSITION_TAKEN hoặc AUDITORIUM_CAPACITY_EXCEEDED")})
     public com.cinema.cms.dto.ApiResponse<List<SeatResponse>> create(@PathVariable Integer auditoriumId, @Valid @RequestBody CreateSeatsRequest request) {
         return new com.cinema.cms.dto.ApiResponse<>(seats.create(auditoriumId, request));
     }
@@ -46,7 +46,7 @@ public class SeatController {
     @Operation(summary = "Sửa vị trí hoặc loại của một ghế (thay toàn bộ). Ghế đang ghép cặp Sweetbox không sửa được")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "Ghế sau khi sửa"), @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR"),
             @ApiResponse(responseCode = "404", description = "SEAT_NOT_FOUND"),
-            @ApiResponse(responseCode = "409", description = "SEAT_POSITION_TAKEN hoặc SEAT_IS_PAIRED")})
+            @ApiResponse(responseCode = "409", description = "AUDITORIUM_LAYOUT_LOCKED hoặc SEAT_POSITION_TAKEN hoặc SEAT_IS_PAIRED")})
     public com.cinema.cms.dto.ApiResponse<SeatResponse> update(@PathVariable Long seatId, @Valid @RequestBody SeatRequest request) {
         return new com.cinema.cms.dto.ApiResponse<>(seats.update(seatId, request));
     }
