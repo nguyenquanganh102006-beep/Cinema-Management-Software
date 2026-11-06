@@ -2,7 +2,7 @@
 
 Hệ thống quản lý và đặt vé rạp chiếu phim: Spring Boot + PostgreSQL, ba giao diện React cho Manager, Staff và Customer.
 
-Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Các trang nghiệp vụ sau đăng nhập là placeholder; chưa có CRUD phim/phòng, lịch chiếu, bán vé hoặc thanh toán.
+Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Backend đã có API Master Data (B), Showtime (C) và Seat Holding (D). Các trang nghiệp vụ sau đăng nhập vẫn là placeholder; Booking, Payment và phát hành Ticket thuộc Sprint E.
 
 ## Công cụ
 
@@ -117,3 +117,12 @@ docs/                 Bối cảnh, plan, API, schema, decision
 Flyway quản lý schema; Hibernate chỉ validate. Không chạy nguyên SQL nguồn vì có DROP SCHEMA và seed chưa nhất quán. Migration đã chia sẻ phải được giữ nguyên, thêm version mới khi thay đổi.
 
 Nếu khởi động lỗi: kiểm tra JAVA_HOME, database/cổng/credential, JWT_SECRET tối thiểu 32 byte, DEMO_PASSWORD và DEMO_MANAGER_PIN khi profile local. Không bật request/SQL bind logging chứa credential.
+
+
+## Demo Seat Holding (Sprint D)
+
+Chạy backend với database riêng và profile `local`, mở Swagger tại http://localhost:8080/swagger-ui/index.html. Manager đăng nhập, tạo movie → auditorium → ghế thường/VIP/Sweetbox → ghép Sweetbox cùng hàng liền kề → tạo showtime trong tương lai. Layout/pair phải hoàn tất trước khi tạo lịch; phòng có lịch không thêm/sửa ghế hoặc pair/unpair được nữa (`409 AUDITORIUM_LAYOUT_LOCKED`).
+
+Dùng JWT của Staff và Customer ở hai client độc lập, gọi `GET /api/v1/showtimes/{id}/seats`, sau đó cùng POST `/api/v1/showtimes/{id}/holds` với `{"seatIds":[...]}`. Chỉ một client giữ được cùng ghế. Đồng hồ bắt đầu sau response 201, hold 5 phút; Staff đang chờ chuyển khoản được gia hạn một lần từ phút 4, cộng 2 phút vào hạn cũ. DELETE `/api/v1/holds/{token}` giải phóng nhóm. Cùng tài khoản đăng nhập hai lần vẫn là hai phiên sở hữu độc lập.
+
+[API seat holding](docs/api/seat-holding.md), [quyết định Sprint D](docs/decisions/004-seat-holding.md), [kiểm thử PostgreSQL](docs/testing/sprint-d.md). Chạy `bash mvnw verify` trong backend với Docker/Testcontainers hoặc DB_TEST_* của database test riêng. Trước tích hợp dữ liệu cũ, chạy script SELECT [check-showtime-inventory.sql](scripts/testing/check-showtime-inventory.sql); không tự rebuild inventory có lịch sử.
