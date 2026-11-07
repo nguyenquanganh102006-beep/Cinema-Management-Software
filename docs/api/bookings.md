@@ -139,3 +139,9 @@ Booking PENDING kênh POS được STAFF thanh toán tại quầy qua cash hoặ
 đồng chi tiết, quyết định cho STAFF khác và mã lỗi tại
 [pos-payments.md](pos-payments.md). Booking ONLINE không dùng các endpoint này và nhận
 422 `BOOKING_CHANNEL_INVALID`.
+
+## Thanh toán online VNPay
+
+Booking PENDING kênh ONLINE do CUSTOMER thanh toán qua VNPay. Return URL chỉ hiển thị
+trạng thái; Ticket chỉ được phát hành khi IPN hợp lệ. Xem URL thanh toán, contract
+IPN, nhánh ngoại lệ và mã lỗi tại [vnpay-payment.md](vnpay-payment.md).

@@ -40,6 +40,12 @@ app:
     vietqr:
       bank-account: ${CINEMA_BANK_ACCOUNT:}
       bank-name: ${CINEMA_BANK_NAME:}
+    vnpay:
+      tmn-code: ${VNPAY_TMN_CODE:}
+      hash-secret: ${VNPAY_HASH_SECRET:}
+      pay-url: ${VNPAY_PAY_URL:}
+      return-url: ${VNPAY_RETURN_URL:}
+      ipn-url: ${VNPAY_IPN_URL:}
 springdoc:
   api-docs:
     enabled: false

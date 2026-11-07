@@ -51,8 +51,22 @@ public class Booking {
     }
 
     public void markPaid(Instant now) {
+        if (status != BookingStatus.PENDING)
+            throw new IllegalStateException("Booking is not PENDING");
+        if (now == null) throw new IllegalArgumentException("paidAt is required");
         this.status = BookingStatus.PAID;
         this.paidAt = now;
+    }
+
+    /**
+     * The gateway confirmed the money but the seats or F&B could not be delivered. The booking is
+     * parked for a manager decision; no ticket may be issued from this state.
+     */
+    public void markException(Instant now) {
+        if (status != BookingStatus.PENDING)
+            throw new IllegalStateException("Booking is not PENDING");
+        if (now == null) throw new IllegalArgumentException("exception time is required");
+        this.status = BookingStatus.EXCEPTION_PENDING_DECISION;
     }
 
     public Long getId() { return id; }
