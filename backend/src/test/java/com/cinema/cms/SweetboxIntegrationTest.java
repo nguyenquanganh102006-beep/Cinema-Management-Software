@@ -123,6 +123,20 @@ class SweetboxIntegrationTest {
         for (long id : new long[]{sweet[0], sweet[1], standard[0], foreign[0]}) assertThat(pairOf(id)).isNull();
     }
 
+    @Test void rejectsNonAdjacentAndDifferentRowPairsWithoutWriting() throws Exception {
+        String manager = tokenFor(UserRole.MANAGER);
+        int room = createRoom(manager, 20);
+        long[] a = createSeats(manager, room, "A", 3, "SWEETBOX");
+        long[] b = createSeats(manager, room, "B", 2, "SWEETBOX");
+        for (long other : new long[]{a[2], b[1]}) {
+            pair(manager, a[0], other).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("SWEETBOX_PAIR_INVALID"));
+            assertThat(pairOf(a[0])).isNull();
+            assertThat(pairOf(other)).isNull();
+        }
+        pair(manager, a[0], a[1]).andExpect(status().isCreated());
+    }
+
     @Test void rejectsConflictingAndOneWayPairs() throws Exception {
         String manager = tokenFor(UserRole.MANAGER);
         int room = createRoom(manager, 20);
@@ -189,7 +203,7 @@ class SweetboxIntegrationTest {
             CyclicBarrier start = new CyclicBarrier(2);
             try {
                 Future<MvcResult> first = pool.submit(() -> { start.await(); return pair(manager, s[0], s[1]).andReturn(); });
-                Future<MvcResult> second = pool.submit(() -> { start.await(); return pair(manager, s[0], s[2]).andReturn(); });
+                Future<MvcResult> second = pool.submit(() -> { start.await(); return pair(manager, s[1], s[2]).andReturn(); });
                 List<MvcResult> results = List.of(first.get(30, TimeUnit.SECONDS), second.get(30, TimeUnit.SECONDS));
                 assertThat(results.stream().map(r -> r.getResponse().getStatus()).sorted().toList()).containsExactly(201, 409);
                 MvcResult loser = results.stream().filter(r -> r.getResponse().getStatus() == 409).findFirst().orElseThrow();

@@ -21,6 +21,7 @@
 - `type` của ghế: `STANDARD` (mặc định), `VIP`, `SWEETBOX`.
 - Ghế đang ghép cặp Sweetbox không đổi được vị trí hoặc loại.
 - Không có API xóa phòng hay xóa ghế.
+- Khi phòng đã có bất kỳ showtime nào (kể cả quá khứ), thêm/sửa ghế trả 409 `AUDITORIUM_LAYOUT_LOCKED`; cấu hình toàn bộ layout/pair trước khi lập lịch. Đổi name/active/capacity/type của phòng vẫn theo quy tắc quản trị hiện có.
 - Mọi thao tác ghi ghế và đổi sức chứa đều khóa dòng phòng trước, nên chạy tuần tự trong cùng một phòng. Ràng buộc UNIQUE của database vẫn là chốt chặn cuối.
 
 ## Ví dụ
@@ -35,7 +36,7 @@ PATCH /api/v1/seats/10              { "row": "B", "number": 9, "type": "STANDARD
 
 | Mã | HTTP | Khi nào |
 |---|---|---|
-| `VALIDATION_ERROR` | 400 | Sai trường, trường lạ, loại không hợp lệ, ghế lặp trong yêu cầu, danh sách rỗng hoặc quá 500 |
+| `VALIDATION_ERROR` | 400 | Sai trường, trường lạ, loại không hợp lệ, ghế lặp trong yêu cầu, danh sách rỗng, phần tử null hoặc quá 500 |
 | `ACCESS_DENIED` | 403 | Không phải Manager |
 | `AUDITORIUM_NOT_FOUND`, `SEAT_NOT_FOUND` | 404 | Không tồn tại |
 | `AUDITORIUM_NAME_EXISTS` | 409 | Trùng tên phòng, không phân biệt hoa thường. Được đảm bảo bằng index `uq_auditoriums_name_ci` (V5), kể cả khi hai request chạy đồng thời |
@@ -43,4 +44,4 @@ PATCH /api/v1/seats/10              { "row": "B", "number": 9, "type": "STANDARD
 | `AUDITORIUM_CAPACITY_EXCEEDED` | 409 | Thêm ghế làm vượt sức chứa |
 | `SEAT_POSITION_TAKEN` | 409 | Vị trí (hàng, số) đã có trong phòng |
 | `SEAT_IS_PAIRED` | 409 | Ghế đang ghép cặp Sweetbox |
- 
+| `AUDITORIUM_LAYOUT_LOCKED` | 409 | Phòng đã có ít nhất một suất chiếu; không thay đổi ghế/pair |

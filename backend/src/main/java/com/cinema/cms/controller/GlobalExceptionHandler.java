@@ -9,6 +9,9 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -40,6 +43,16 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiErrorResponse> json(HttpServletRequest req) { return response(400,"VALIDATION_ERROR","JSON hoặc trường dữ liệu không hợp lệ",Map.of(),req); }
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<ApiErrorResponse> conflict(HttpServletRequest req) { return response(409,"RESOURCE_CONFLICT","Dữ liệu đã tồn tại hoặc vi phạm ràng buộc",Map.of(),req); }
+    @ExceptionHandler({ConcurrencyFailureException.class, QueryTimeoutException.class,
+            jakarta.persistence.LockTimeoutException.class, jakarta.persistence.PessimisticLockException.class,
+            jakarta.persistence.OptimisticLockException.class})
+    ResponseEntity<ApiErrorResponse> seatConflict(HttpServletRequest req) {
+        return response(409,"SEAT_UPDATE_CONFLICT","Ghế đang được cập nhật, vui lòng làm mới",Map.of(),req);
+    }
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ResponseEntity<ApiErrorResponse> malformedPath(HttpServletRequest req) {
+        return response(400,"VALIDATION_ERROR","Tham số không hợp lệ",Map.of(),req);
+    }
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<ApiErrorResponse> denied(HttpServletRequest req) { return response(403,"ACCESS_DENIED","Không đủ quyền truy cập",Map.of(),req); }
     @ExceptionHandler(NoResourceFoundException.class)
@@ -58,7 +71,7 @@ public class GlobalExceptionHandler {
                     errors.body(status, code, "Yêu cầu HTTP không hợp lệ", Map.of(), req.getRequestURI()));
         }
         // Log only the exception class: request values and SQL can contain credentials.
-        log.error("Unhandled failure type={} path={}", e.getClass().getSimpleName(), req.getRequestURI());
+        log.error("Unhandled failure type={} path={}", e.getClass().getSimpleName(), ErrorResponses.safePath(req.getRequestURI()));
         return response(500,"INTERNAL_ERROR","Hệ thống gặp lỗi, vui lòng thử lại",Map.of(),req);
     }
 }

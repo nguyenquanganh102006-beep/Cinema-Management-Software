@@ -56,7 +56,7 @@ Storage uses Foundation's `Instant` / TIMESTAMPTZ. Response times use the busine
 
 ## Error contract
 
-The existing `GlobalExceptionHandler` returns `timestamp/status/code/message/details/path`. No changes to that shared handler or SecurityConfig were needed.
+The existing `GlobalExceptionHandler` returns `timestamp/status/code/message/details/path`. Sprint D extends the shared handler for malformed typed path values (400) and lock/version conflicts (409); SecurityConfig remains unchanged.
 
 | HTTP | Code | Meaning |
 |---|---|---|
@@ -66,6 +66,7 @@ The existing `GlobalExceptionHandler` returns `timestamp/status/code/message/det
 | 404 | MOVIE_NOT_FOUND / AUDITORIUM_NOT_FOUND / SHOWTIME_NOT_FOUND | Missing resource |
 | 409 | SHOWTIME_CONFLICT | Same-room occupancy overlaps |
 | 409 | SHOWTIME_CANNOT_BE_MODIFIED | Ticket history or unavailable inventory |
+| 409 | SEAT_UPDATE_CONFLICT | Inventory lock timeout (2 seconds) or version conflict |
 | 422 | MOVIE_INACTIVE / AUDITORIUM_INACTIVE | Inactive master data on a write |
 | 422 | MOVIE_DURATION_INVALID | Invalid master duration |
 | 422 | AUDITORIUM_HAS_NO_SEATS | No physical seats |
@@ -76,4 +77,4 @@ Database integrity failures retain Foundation's generic 409 RESOURCE_CONFLICT; u
 
 ## Scope boundary
 
-No DELETE, showtime status endpoint, room reassignment, seat-map endpoint, hold, scheduler, pricing quote, booking, checkout, payment, ticket issuance or refund. See [decisions and traceability](../decisions/003-showtime.md) for sources and [validation](../architecture/showtime-validation.md) for executed checks.
+Sprint C itself has no DELETE, showtime status endpoint, room reassignment, pricing quote, booking, payment, ticket issuance or refund. Sprint D adds the separate [seat map/hold API](seat-holding.md), cleanup and an internal checkout seat service. Seat layout/pairs are frozen once a room has any showtime; see [decision 004](../decisions/004-seat-holding.md). See [decisions and traceability](../decisions/003-showtime.md) for sources and [validation](../architecture/showtime-validation.md) for executed checks.

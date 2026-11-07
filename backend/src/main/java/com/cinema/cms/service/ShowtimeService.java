@@ -7,7 +7,6 @@ import java.math.BigDecimal;
 import java.time.*;
 import java.time.format.DateTimeParseException;
 import java.util.*;
-import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -25,11 +24,12 @@ public class ShowtimeService {
     private final PricingRuleRepository pricing;
     private final ShowtimeTimeService time;
     private final Clock clock;
+    private final SweetboxPairValidator pairs;
 
     public ShowtimeService(ShowtimeRepository showtimes, ShowtimeSeatRepository inventory, MovieRepository movies,
-                           AuditoriumRepository auditoriums, SeatRepository seats, PricingRuleRepository pricing, ShowtimeTimeService time, Clock clock) {
+                           AuditoriumRepository auditoriums, SeatRepository seats, PricingRuleRepository pricing, ShowtimeTimeService time, Clock clock, SweetboxPairValidator pairs) {
         this.showtimes = showtimes; this.inventory = inventory; this.movies = movies;
-        this.auditoriums = auditoriums; this.seats = seats; this.pricing = pricing; this.time = time; this.clock = clock;
+        this.auditoriums = auditoriums; this.seats = seats; this.pricing = pricing; this.time = time; this.clock = clock; this.pairs = pairs;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -53,6 +53,7 @@ public class ShowtimeService {
         Integer room = showtimes.findAuditoriumId(id).orElseThrow(ShowtimeService::notFound);
         lockActiveRoom(room);
         Showtime show = showtimes.findByIdForUpdate(id).orElseThrow(ShowtimeService::notFound);
+        inventory.configureLockTimeout();
         List<ShowtimeSeat> locked = inventory.findByShowtimeIdForUpdate(id);
         if (locked.stream().anyMatch(s -> s.getStatus() != SeatStatus.AVAILABLE) || showtimes.hasAnyTicket(id)) {
             throw new ApiException(409, "SHOWTIME_CANNOT_BE_MODIFIED", "Suất chiếu đã có vé hoặc ghế không còn trống");
@@ -126,17 +127,8 @@ public class ShowtimeService {
     }
     private void validateSeats(List<Seat> physical) {
         if (physical.isEmpty()) throw new ApiException(422, "AUDITORIUM_HAS_NO_SEATS", "Phòng chiếu chưa có ghế");
-        Map<Long, Seat> byId = physical.stream().collect(Collectors.toMap(Seat::getId, s -> s));
-        for (Seat seat : physical) {
-            Seat pair = byId.get(seat.getPairSeatId());
-            if (seat.getSeatType() == SeatType.SWEETBOX) {
-                if (pair == null || pair.getSeatType() != SeatType.SWEETBOX || !seat.getId().equals(pair.getPairSeatId())
-                        || !seat.getSeatRow().equals(pair.getSeatRow()) || Math.abs((long) seat.getSeatNumber() - pair.getSeatNumber()) != 1) {
-                    throw new ApiException(422, "SWEETBOX_PAIR_INVALID", "Sweetbox phải là hai ghế liền kề cùng phòng, liên kết đối xứng");
-                }
-            } else if (seat.getPairSeatId() != null) {
-                throw new ApiException(422, "SWEETBOX_PAIR_INVALID", "Chỉ ghế Sweetbox được ghép cặp");
-            }
+        if (!pairs.validateLayout(physical)) {
+            throw new ApiException(422, "SWEETBOX_PAIR_INVALID", "Sweetbox phải là hai ghế liền kề cùng phòng, liên kết đối xứng");
         }
     }
     private static ApiException invalid() { return new ApiException(400, "VALIDATION_ERROR", "Bộ lọc suất chiếu không hợp lệ"); }

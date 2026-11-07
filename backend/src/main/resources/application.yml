@@ -22,6 +22,12 @@ spring:
     deserialization:
       fail-on-unknown-properties: true
 app:
+  holds:
+    ttl-seconds: 300
+    extension-seconds: 120
+    extend-after-seconds: 240
+    cleanup-delay-ms: 10000
+    batch-size: 100
   portals:
     manager: ${PORTAL_MANAGER_URL:http://localhost:3001}
     staff: ${PORTAL_STAFF_URL:http://localhost:3002}

@@ -38,4 +38,42 @@ public class ShowtimeSeat {
     public boolean isExtensionUsed() { return extensionUsed; }
     public Integer getVersion() { return version; }
     public Instant getUpdatedAt() { return updatedAt; }
+
+    public boolean live(Instant now) {
+      return status == SeatStatus.HOLDING && holdUntil != null && now.isBefore(holdUntil);
+    }
+
+    public void hold(String token, String owner, Instant until, Instant now) {
+      status = SeatStatus.HOLDING;
+      holdToken = token;
+      ownerId = owner;
+      holdUntil = until;
+      extensionUsed = false;
+      updatedAt = now;
+    }
+
+    public void extend(Instant until, Instant now) {
+      holdUntil = until;
+      extensionUsed = true;
+      updatedAt = now;
+    }
+
+    public void release(Instant now) {
+      status = SeatStatus.AVAILABLE;
+      clearHold();
+      updatedAt = now;
+    }
+
+    public void book(Instant now) {
+      status = SeatStatus.BOOKED;
+      clearHold();
+      updatedAt = now;
+    }
+
+    private void clearHold() {
+      holdToken = null;
+      ownerId = null;
+      holdUntil = null;
+      extensionUsed = false;
+    }
 }

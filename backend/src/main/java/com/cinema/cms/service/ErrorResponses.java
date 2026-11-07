@@ -12,6 +12,10 @@ public class ErrorResponses {
     public ErrorResponses(Clock clock) { this.clock = clock; }
     public ApiErrorResponse body(int status, String code, String message, Map<String, String> details, String path) {
         return new ApiErrorResponse(OffsetDateTime.ofInstant(clock.instant(), ZoneId.of("Asia/Ho_Chi_Minh")),
-                status, code, message, details, path);
+                status, code, message, details, safePath(path));
+    }
+
+    public static String safePath(String path) {
+        return path == null ? null : path.replaceAll("(/holds/)[^/]+", "$1[redacted]");
     }
 }

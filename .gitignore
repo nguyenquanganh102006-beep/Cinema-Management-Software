@@ -13,3 +13,7 @@
 .local/
 coverage/
 frontend/.vite/
+
+/.cache/
+/.codex-reference/
+/docs/plan_implement/
