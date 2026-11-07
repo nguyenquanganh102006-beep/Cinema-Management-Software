@@ -132,3 +132,10 @@ Chọn **409 `BOOKING_ALREADY_EXISTS`**. Retry sau khi tạo thành công sẽ n
 ## Đọc Booking
 
 `GET /api/v1/bookings/{id}` trả cùng cấu trúc `BookingResponse`. CUSTOMER chỉ đọc Booking có `user_id` của mình; STAFF chỉ đọc Booking POS do mình tạo. Booking của người khác trả 404 `BOOKING_NOT_FOUND` để không lộ sự tồn tại. `holdUntil` là hạn giữ còn hiệu lực nếu hold chưa bị clear; sau checkout có thể là `null`.
+
+## Thanh toán POS
+
+Booking PENDING kênh POS được STAFF thanh toán tại quầy qua cash hoặc VietQR. Xem hợp
+đồng chi tiết, quyết định cho STAFF khác và mã lỗi tại
+[pos-payments.md](pos-payments.md). Booking ONLINE không dùng các endpoint này và nhận
+422 `BOOKING_CHANNEL_INVALID`.

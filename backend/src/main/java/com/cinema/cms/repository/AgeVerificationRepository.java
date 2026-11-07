@@ -8,4 +8,6 @@ public interface AgeVerificationRepository extends JpaRepository<AgeVerification
     List<AgeVerification> findByBookingIdOrderByIdAsc(Long bookingId);
 
     List<AgeVerification> findByTicketIdOrderByIdAsc(Long ticketId);
+
+    boolean existsByBookingIdAndVerificationStage(Long bookingId, String verificationStage);
 }
