@@ -30,7 +30,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {"app.jwt.secret=showtime-test-only-secret-at-least-32-bytes", "app.jwt.ttl-seconds=1800",
-        "springdoc.api-docs.enabled=true", "spring.jpa.properties.hibernate.generate_statistics=true"})
+        "springdoc.api-docs.enabled=true", "spring.jpa.properties.hibernate.generate_statistics=true",
+        "spring.datasource.hikari.maximum-pool-size=5", "spring.datasource.hikari.minimum-idle=1"})
 @AutoConfigureMockMvc
 class ShowtimeIntegrationTest {
     static PostgreSQLContainer<?> postgres;
@@ -233,7 +234,7 @@ class ShowtimeIntegrationTest {
     void patchPreservesEveryTicketIncludingCancelledHistory(String state) throws Exception {
         long id = create();
         long seat = jdbc.queryForObject("select min(showtime_seat_id) from showtime_seats where showtime_id=?", Long.class, id);
-        long booking = jdbc.queryForObject("insert into bookings(booking_code,channel,total_amount,status) values(?,'POS',70000,'PAID') returning booking_id", Long.class, unique().substring(0, 30));
+        long booking = jdbc.queryForObject("insert into bookings(booking_code,showtime_id,channel,total_amount,status) values(?,?,'POS',70000,'PAID') returning booking_id", Long.class, unique().substring(0, 30), id);
         jdbc.update("insert into payments(booking_id,payment_method,amount,status,paid_at) values(?,'CASH',70000,'PAID',CURRENT_TIMESTAMP)", booking);
         jdbc.update("insert into tickets(ticket_code,booking_id,showtime_seat_id,price_snapshot,status) values(?,?,?,70000,cast(? as ticket_status_enum))", unique(), booking, seat, state);
         if (!state.equals("CANCELLED")) jdbc.update("update showtime_seats set status='BOOKED' where showtime_seat_id=?", seat);

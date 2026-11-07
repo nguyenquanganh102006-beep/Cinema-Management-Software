@@ -17,6 +17,10 @@ public interface ShowtimeSeatRepository extends JpaRepository<ShowtimeSeat, Long
 
     List<ShowtimeSeat> findByHoldTokenOrderBySeatId(String token);
 
+    // Scalar read only: VNPay URL creation must not load ShowtimeSeat entities before checkout.
+    @Query("select s.holdUntil from ShowtimeSeat s where s.holdToken = :token")
+    List<Instant> findHoldUntilByHoldToken(@Param("token") String token);
+
     interface HoldMember {
       Long getShowtimeId();
 

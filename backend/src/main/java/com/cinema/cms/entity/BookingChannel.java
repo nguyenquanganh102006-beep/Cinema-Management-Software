@@ -1,0 +1,3 @@
+package com.cinema.cms.entity;
+
+public enum BookingChannel { ONLINE, POS }

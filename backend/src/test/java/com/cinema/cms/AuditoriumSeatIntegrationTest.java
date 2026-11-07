@@ -26,7 +26,9 @@ import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties = {"app.jwt.secret=" + AuditoriumSeatIntegrationTest.SECRET, "app.jwt.ttl-seconds=1800"})
+@SpringBootTest(properties = {"app.jwt.secret=" + AuditoriumSeatIntegrationTest.SECRET, "app.jwt.ttl-seconds=1800",
+        "spring.datasource.hikari.maximum-pool-size=5",
+        "spring.datasource.hikari.minimum-idle=1"})
 @AutoConfigureMockMvc
 class AuditoriumSeatIntegrationTest {
     static final String SECRET = "auditorium-test-only-secret-at-least-32-bytes";
