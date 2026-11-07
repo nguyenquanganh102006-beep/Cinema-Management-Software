@@ -33,7 +33,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {"app.jwt.secret=" + FoundationIntegrationTest.SECRET,
-        "app.jwt.ttl-seconds=1800", "springdoc.api-docs.enabled=true", "springdoc.swagger-ui.enabled=true"})
+        "app.jwt.ttl-seconds=1800", "springdoc.api-docs.enabled=true", "springdoc.swagger-ui.enabled=true",
+        "spring.datasource.hikari.maximum-pool-size=5", "spring.datasource.hikari.minimum-idle=1"})
 @AutoConfigureMockMvc
 @Import(FoundationIntegrationTest.TestEndpoints.class)
 class FoundationIntegrationTest {

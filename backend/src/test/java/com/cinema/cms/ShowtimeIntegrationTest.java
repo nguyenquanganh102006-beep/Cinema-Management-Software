@@ -30,7 +30,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {"app.jwt.secret=showtime-test-only-secret-at-least-32-bytes", "app.jwt.ttl-seconds=1800",
-        "springdoc.api-docs.enabled=true", "spring.jpa.properties.hibernate.generate_statistics=true"})
+        "springdoc.api-docs.enabled=true", "spring.jpa.properties.hibernate.generate_statistics=true",
+        "spring.datasource.hikari.maximum-pool-size=5", "spring.datasource.hikari.minimum-idle=1"})
 @AutoConfigureMockMvc
 class ShowtimeIntegrationTest {
     static PostgreSQLContainer<?> postgres;

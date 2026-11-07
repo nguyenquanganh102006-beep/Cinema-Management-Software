@@ -25,7 +25,9 @@ import org.springframework.test.web.servlet.ResultActions;
 @TestPropertySource(
         properties = {
             "app.payments.vietqr.bank-account=0123456789",
-            "app.payments.vietqr.bank-name=Test Bank"
+            "app.payments.vietqr.bank-name=Test Bank",
+            "spring.datasource.hikari.maximum-pool-size=5",
+            "spring.datasource.hikari.minimum-idle=1"
         })
 class PosPaymentIntegrationTest extends SeatHoldTestSupport {
     @Autowired BookingService bookingService;

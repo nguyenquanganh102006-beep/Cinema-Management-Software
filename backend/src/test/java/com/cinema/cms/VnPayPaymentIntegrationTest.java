@@ -34,7 +34,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
             "app.payments.vnpay.hash-secret=test-vnpay-hash-secret-at-least-32-bytes",
             "app.payments.vnpay.pay-url=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
             "app.payments.vnpay.return-url=http://localhost:3003/payments/vnpay/return",
-            "app.payments.vnpay.ipn-url=http://localhost:8080/api/v1/payments/vnpay/ipn"
+            "app.payments.vnpay.ipn-url=http://localhost:8080/api/v1/payments/vnpay/ipn",
+            "spring.datasource.hikari.maximum-pool-size=5",
+            "spring.datasource.hikari.minimum-idle=1"
         })
 class VnPayPaymentIntegrationTest extends SeatHoldTestSupport {
     private static final String TMN_CODE = "TESTTMN";

@@ -21,7 +21,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
     properties = {
       "app.jwt.secret=seat-test-only-secret-at-least-32-bytes-long",
       "app.holds.cleanup-delay-ms=3600000",
-      "springdoc.api-docs.enabled=true"
+      "springdoc.api-docs.enabled=true",
+      "spring.datasource.hikari.maximum-pool-size=5",
+      "spring.datasource.hikari.minimum-idle=1"
     })
 @AutoConfigureMockMvc
 @Import(SeatHoldTestSupport.TimeConfig.class)
