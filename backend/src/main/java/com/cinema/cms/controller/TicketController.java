@@ -1,5 +1,6 @@
 package com.cinema.cms.controller;
 
+import com.cinema.cms.dto.ApiErrorResponse;
 import com.cinema.cms.dto.ApiResponse;
 import com.cinema.cms.dto.TicketResponse;
 import com.cinema.cms.service.SessionPrincipal;
@@ -16,6 +17,37 @@ import org.springframework.web.bind.annotation.*;
 @PreAuthorize("hasAnyRole('STAFF','CUSTOMER')")
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "Tickets", description = "Đọc vé điện tử (STAFF hoặc CUSTOMER sở hữu Booking)")
+@io.swagger.v3.oas.annotations.responses.ApiResponses({
+  @io.swagger.v3.oas.annotations.responses.ApiResponse(
+      responseCode = "401",
+      content =
+          @io.swagger.v3.oas.annotations.media.Content(
+              mediaType = "application/json",
+              schema =
+                  @io.swagger.v3.oas.annotations.media.Schema(
+                      implementation = ApiErrorResponse.class)),
+      description = "AUTH_TOKEN_INVALID / AUTH_TOKEN_EXPIRED"),
+  @io.swagger.v3.oas.annotations.responses.ApiResponse(
+      responseCode = "403",
+      content =
+          @io.swagger.v3.oas.annotations.media.Content(
+              mediaType = "application/json",
+              schema =
+                  @io.swagger.v3.oas.annotations.media.Schema(
+                      implementation = ApiErrorResponse.class)),
+      description = "ACCESS_DENIED"),
+  @io.swagger.v3.oas.annotations.responses.ApiResponse(
+      responseCode = "404",
+      content =
+          @io.swagger.v3.oas.annotations.media.Content(
+              mediaType = "application/json",
+              schema =
+                  @io.swagger.v3.oas.annotations.media.Schema(
+                      implementation = ApiErrorResponse.class)),
+      description =
+          "TICKET_NOT_FOUND / BOOKING_NOT_FOUND (a ticket of another customer also returns"
+              + " TICKET_NOT_FOUND)")
+})
 public class TicketController {
     private final TicketService tickets;
 
@@ -24,7 +56,11 @@ public class TicketController {
     }
 
     @GetMapping("/{ticketCode}")
-    @Operation(summary = "Read a ticket by code; CUSTOMER must own the booking")
+    @Operation(
+            summary = "Read a ticket by code; CUSTOMER must own the booking",
+            description =
+                    "Role: STAFF or CUSTOMER (owner only). Never returns the hold token, JWT, PIN"
+                            + " or payment secrets.")
     public ApiResponse<TicketResponse> get(
             @PathVariable String ticketCode,
             @AuthenticationPrincipal SessionPrincipal principal) {
