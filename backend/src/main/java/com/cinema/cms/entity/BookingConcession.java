@@ -18,6 +18,10 @@ public class BookingConcession {
         this.unitPriceSnapshot = unitPriceSnapshot;
     }
 
+    public void updateUnitPriceSnapshot(BigDecimal unitPriceSnapshot) {
+        this.unitPriceSnapshot = unitPriceSnapshot;
+    }
+
     public BookingConcessionId getId() { return id; }
     public int getQuantity() { return quantity; }
     public BigDecimal getUnitPriceSnapshot() { return unitPriceSnapshot; }
