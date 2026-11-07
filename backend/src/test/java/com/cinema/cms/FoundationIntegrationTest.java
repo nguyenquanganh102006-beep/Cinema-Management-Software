@@ -80,7 +80,7 @@ class FoundationIntegrationTest {
     }
     @Test void migrationIsRepeatableAndPricingMatchesBusinessRules() {
         assertThat(flyway.migrate().migrationsExecuted).isZero();
-        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(6);
+        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(7);
         assertThat(jdbc.queryForObject("select amount from pricing_rules where rule_code='SUR_IMAX'", Integer.class)).isEqualTo(40000);
         assertThat(jdbc.queryForObject("select amount from pricing_rules where rule_code='SUR_SWEETBOX'", Integer.class)).isEqualTo(15000);
         assertThat(jdbc.queryForObject("select count(*) from pricing_rules where rule_type='TIME_SURCHARGE'", Integer.class)).isEqualTo(1);

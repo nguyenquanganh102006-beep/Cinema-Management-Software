@@ -3,9 +3,11 @@ package com.cinema.cms.controller;
 import com.cinema.cms.dto.*;
 import com.cinema.cms.service.BookingService;
 import com.cinema.cms.service.SessionPrincipal;
+import com.cinema.cms.service.TicketService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -17,9 +19,11 @@ import org.springframework.web.bind.annotation.*;
 @SecurityRequirement(name = "bearerAuth")
 public class BookingController {
     private final BookingService bookings;
+    private final TicketService tickets;
 
-    public BookingController(BookingService bookings) {
+    public BookingController(BookingService bookings, TicketService tickets) {
         this.bookings = bookings;
+        this.tickets = tickets;
     }
 
     @PostMapping(consumes = "application/json")
@@ -39,5 +43,13 @@ public class BookingController {
             @PathVariable Long id,
             @AuthenticationPrincipal SessionPrincipal principal) {
         return new ApiResponse<>(bookings.get(id, principal));
+    }
+
+    @GetMapping("/{id}/tickets")
+    @Operation(summary = "List tickets of a booking owned by the customer or visible to staff")
+    public ApiResponse<List<TicketResponse>> tickets(
+            @PathVariable Long id,
+            @AuthenticationPrincipal SessionPrincipal principal) {
+        return new ApiResponse<>(tickets.listForBooking(id, principal));
     }
 }

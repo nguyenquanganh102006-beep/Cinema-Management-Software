@@ -7,6 +7,9 @@ Base `/api/v1`, JWT Bearer Foundation. Thành công bọc `data`; lỗi dùng `t
 | POST | `/pricing/quote` | STAFF/CUSTOMER | 200 PricingQuoteResponse |
 | POST | `/bookings` | STAFF/CUSTOMER | 201 BookingResponse |
 | GET | `/bookings/{id}` | STAFF/CUSTOMER sở hữu Booking | 200 BookingResponse |
+| GET | `/bookings/{id}/tickets` | STAFF/CUSTOMER sở hữu Booking | 200 `[TicketResponse]` |
+| GET | `/me/bookings` | CUSTOMER | 200 `PageResponse<MeBookingSummaryResponse>` |
+| GET | `/me/bookings/{bookingId}` | CUSTOMER sở hữu Booking | 200 MeBookingDetailResponse |
 
 ## Công thức giá vé
 
@@ -132,6 +135,15 @@ Chọn **409 `BOOKING_ALREADY_EXISTS`**. Retry sau khi tạo thành công sẽ n
 ## Đọc Booking
 
 `GET /api/v1/bookings/{id}` trả cùng cấu trúc `BookingResponse`. CUSTOMER chỉ đọc Booking có `user_id` của mình; STAFF chỉ đọc Booking POS do mình tạo. Booking của người khác trả 404 `BOOKING_NOT_FOUND` để không lộ sự tồn tại. `holdUntil` là hạn giữ còn hiệu lực nếu hold chưa bị clear; sau checkout có thể là `null`.
+
+## Lịch sử Booking của CUSTOMER
+
+`GET /api/v1/me/bookings` và `GET /api/v1/me/bookings/{bookingId}` chỉ trả dữ liệu của
+`user_id` lấy từ JWT; Booking của người khác trả 404 `BOOKING_NOT_FOUND`. Danh sách
+phân trang `page` từ 0, `size` 1–100, sắp xếp `createdAt DESC, bookingId DESC`. Chi tiết
+gồm suất chiếu, vé, F&B và Payment. Xem [my-bookings.md](my-bookings.md).
+
+Vé của Booking xem tại [tickets.md](tickets.md).
 
 ## Thanh toán POS
 

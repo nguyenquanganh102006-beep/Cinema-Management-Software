@@ -19,6 +19,7 @@ public class Ticket {
     @Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(nullable = false, columnDefinition = "ticket_status_enum") private TicketStatus status;
     @Column(name = "issued_at") private Instant issuedAt;
+    @Column(name = "used_at") private Instant usedAt;
 
     protected Ticket() {}
 
@@ -31,6 +32,15 @@ public class Ticket {
         this.issuedAt = clock.instant();
     }
 
+    /** VALID -> USED. A ticket can be admitted only once. */
+    public void markUsed(Instant now) {
+        if (status != TicketStatus.VALID)
+            throw new IllegalStateException("Ticket is not VALID");
+        if (now == null) throw new IllegalArgumentException("usedAt is required");
+        this.status = TicketStatus.USED;
+        this.usedAt = now;
+    }
+
     public Long getId() { return id; }
     public String getTicketCode() { return ticketCode; }
     public Long getBookingId() { return bookingId; }
@@ -38,4 +48,5 @@ public class Ticket {
     public BigDecimal getPriceSnapshot() { return priceSnapshot; }
     public TicketStatus getStatus() { return status; }
     public Instant getIssuedAt() { return issuedAt; }
+    public Instant getUsedAt() { return usedAt; }
 }

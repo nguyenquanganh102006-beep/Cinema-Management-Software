@@ -2,6 +2,8 @@ package com.cinema.cms.repository;
 
 import com.cinema.cms.entity.Payment;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -10,6 +12,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
     Optional<Payment> findByBookingId(Long bookingId);
+
+    List<Payment> findByBookingIdIn(Collection<Long> bookingIds);
 
     Optional<Payment> findByVnpTxnRef(String vnpTxnRef);
 
