@@ -1,12 +1,14 @@
 package com.cinema.cms.entity;
 
 import jakarta.persistence.*;
+import java.time.Clock;
 import java.time.Instant;
 
 @Entity
 @Table(name = "inventory_transactions")
 public class InventoryTransaction {
     public static final String RESTOCK = "RESTOCK";
+    public static final String SALE = "SALE";
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "movement_id") private Long id;
@@ -25,6 +27,17 @@ public class InventoryTransaction {
         InventoryTransaction t = new InventoryTransaction();
         t.itemId = itemId; t.movementType = RESTOCK; t.quantity = quantity; t.beforeQuantity = before; t.afterQuantity = after;
         t.managerId = managerId; t.note = note; t.createdAt = Instant.now();
+        return t;
+    }
+
+    public static InventoryTransaction sale(Integer itemId, int quantity, int before, int after, Clock clock) {
+        if (quantity >= 0) throw new IllegalArgumentException("SALE quantity must be negative");
+        if (before < 0 || after < 0 || after != before + quantity)
+            throw new IllegalArgumentException("Invalid stock movement");
+        InventoryTransaction t = new InventoryTransaction();
+        t.itemId = itemId; t.movementType = SALE; t.quantity = quantity;
+        t.beforeQuantity = before; t.afterQuantity = after;
+        t.managerId = null; t.createdAt = clock.instant();
         return t;
     }
 
