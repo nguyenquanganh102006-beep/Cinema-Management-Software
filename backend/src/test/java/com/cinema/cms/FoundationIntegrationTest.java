@@ -33,7 +33,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {"app.jwt.secret=" + FoundationIntegrationTest.SECRET,
-        "app.jwt.ttl-seconds=1800", "springdoc.api-docs.enabled=true", "springdoc.swagger-ui.enabled=true"})
+        "app.jwt.ttl-seconds=1800", "springdoc.api-docs.enabled=true", "springdoc.swagger-ui.enabled=true",
+        "spring.datasource.hikari.maximum-pool-size=5", "spring.datasource.hikari.minimum-idle=1"})
 @AutoConfigureMockMvc
 @Import(FoundationIntegrationTest.TestEndpoints.class)
 class FoundationIntegrationTest {
@@ -80,7 +81,7 @@ class FoundationIntegrationTest {
     }
     @Test void migrationIsRepeatableAndPricingMatchesBusinessRules() {
         assertThat(flyway.migrate().migrationsExecuted).isZero();
-        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(5);
+        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(7);
         assertThat(jdbc.queryForObject("select amount from pricing_rules where rule_code='SUR_IMAX'", Integer.class)).isEqualTo(40000);
         assertThat(jdbc.queryForObject("select amount from pricing_rules where rule_code='SUR_SWEETBOX'", Integer.class)).isEqualTo(15000);
         assertThat(jdbc.queryForObject("select count(*) from pricing_rules where rule_type='TIME_SURCHARGE'", Integer.class)).isEqualTo(1);

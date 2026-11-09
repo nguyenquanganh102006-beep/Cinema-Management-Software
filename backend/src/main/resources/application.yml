@@ -36,6 +36,16 @@ app:
     secret: ${JWT_SECRET}
     ttl-seconds: ${JWT_TTL_SECONDS:1800}
   cors-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3001,http://localhost:3002,http://localhost:3003}
+  payments:
+    vietqr:
+      bank-account: ${CINEMA_BANK_ACCOUNT:}
+      bank-name: ${CINEMA_BANK_NAME:}
+    vnpay:
+      tmn-code: ${VNPAY_TMN_CODE:}
+      hash-secret: ${VNPAY_HASH_SECRET:}
+      pay-url: ${VNPAY_PAY_URL:}
+      return-url: ${VNPAY_RETURN_URL:}
+      ipn-url: ${VNPAY_IPN_URL:}
 springdoc:
   api-docs:
     enabled: false

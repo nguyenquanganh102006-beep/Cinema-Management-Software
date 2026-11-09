@@ -40,11 +40,12 @@ public class CheckoutSeatService {
     return group;
   }
 
-  public void markBooked(
+  public List<ShowtimeSeat> markBooked(
       String token, String owner, Long showtimeId, Collection<Long> expectedSeatIds) {
     var group = lockAndValidateHold(token, owner, showtimeId, expectedSeatIds);
     var now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     if (group.stream().anyMatch(s -> !s.live(now))) throw SeatHoldService.expired();
     group.forEach(s -> s.book(now));
+    return group;
   }
 }

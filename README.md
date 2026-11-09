@@ -2,7 +2,7 @@
 
 Hệ thống quản lý và đặt vé rạp chiếu phim: Spring Boot + PostgreSQL, ba giao diện React cho Manager, Staff và Customer.
 
-Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Backend đã có API Master Data (B), Showtime (C) và Seat Holding (D). Các trang nghiệp vụ sau đăng nhập vẫn là placeholder; Booking, Payment và phát hành Ticket thuộc Sprint E.
+Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Backend đã có API Master Data (B), Showtime (C), Seat Holding (D) và Checkout/Payment/Ticket (E). Các trang nghiệp vụ sau đăng nhập vẫn là placeholder; giao diện bán vé/checkout thuộc Sprint E/F, còn backend E đã sẵn sàng.
 
 ## Công cụ
 
@@ -126,3 +126,11 @@ Chạy backend với database riêng và profile `local`, mở Swagger tại htt
 Dùng JWT của Staff và Customer ở hai client độc lập, gọi `GET /api/v1/showtimes/{id}/seats`, sau đó cùng POST `/api/v1/showtimes/{id}/holds` với `{"seatIds":[...]}`. Chỉ một client giữ được cùng ghế. Đồng hồ bắt đầu sau response 201, hold 5 phút; Staff đang chờ chuyển khoản được gia hạn một lần từ phút 4, cộng 2 phút vào hạn cũ. DELETE `/api/v1/holds/{token}` giải phóng nhóm. Cùng tài khoản đăng nhập hai lần vẫn là hai phiên sở hữu độc lập.
 
 [API seat holding](docs/api/seat-holding.md), [quyết định Sprint D](docs/decisions/004-seat-holding.md), [kiểm thử PostgreSQL](docs/testing/sprint-d.md). Chạy `bash mvnw verify` trong backend với Docker/Testcontainers hoặc DB_TEST_* của database test riêng. Trước tích hợp dữ liệu cũ, chạy script SELECT [check-showtime-inventory.sql](scripts/testing/check-showtime-inventory.sql); không tự rebuild inventory có lịch sử.
+
+## Demo Checkout (Sprint E)
+
+Backend E nối tiếp hold của D: `POST /api/v1/bookings` tạo Booking PENDING từ hold token, sau đó STAFF thanh toán tại quầy (`cash`, `vietqr`, `vietqr/confirm`) hoặc CUSTOMER thanh toán online qua VNPay. Chỉ Payment PAID mới phát hành Ticket; vé được đọc qua `/api/v1/tickets/{ticketCode}` và soát tại cổng bằng `/api/v1/tickets/validate`. Lịch sử CUSTOMER ở `/api/v1/me/bookings`; lịch sử quầy ở `/api/v1/pos/bookings` (chỉ channel POS, không lộ Booking ONLINE).
+
+Luồng demo gợi ý trên Swagger: Manager tạo movie/auditorium/ghế/showtime → Staff hoặc Customer giữ ghế → tạo Booking → Staff thanh toán cash/VietQR hoặc Customer lấy URL VNPay → Staff soát vé. VNPay cần `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_PAY_URL`, `VNPAY_RETURN_URL`, `VNPAY_IPN_URL`; VietQR cần `CINEMA_BANK_ACCOUNT`, `CINEMA_BANK_NAME`. Không finalize từ Return URL: chỉ IPN hợp lệ mới phát hành vé.
+
+[API tổng hợp Sprint E](docs/api/checkout-ticket.md), [quyết định Sprint E](docs/decisions/005-checkout-ticket.md), [kiểm thử Sprint E](docs/testing/sprint-e.md). Các tài liệu chi tiết: [Booking](docs/api/bookings.md), [thanh toán POS](docs/api/pos-payments.md), [VNPay](docs/api/vnpay-payment.md), [vé và soát vé](docs/api/tickets.md), [lịch sử CUSTOMER](docs/api/my-bookings.md), [lịch sử POS](docs/api/pos-history.md).
