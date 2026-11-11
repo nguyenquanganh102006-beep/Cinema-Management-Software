@@ -12,6 +12,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface TicketRepository extends JpaRepository<Ticket, Long> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Ticket t where t.id in :ids order by t.id")
+    List<Ticket> lockByIds(@Param("ids") Collection<Long> ids);
     List<Ticket> findByBookingIdOrderByIdAsc(Long bookingId);
 
     Optional<Ticket> findByTicketCode(String ticketCode);

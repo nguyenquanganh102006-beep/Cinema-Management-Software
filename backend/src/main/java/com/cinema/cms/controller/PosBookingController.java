@@ -92,7 +92,7 @@ public class PosBookingController {
             description =
                     "Role: STAFF. Returns showtime/movie, seats, tickets, F&B lines with price"
                             + " snapshots, totals, staff and paidAt. It never returns PIN, JWT,"
-                            + " hold token or payment secrets; refundStatus is reserved for Sprint F"
+                            + " hold token or payment secrets; refundStatus is NONE, PARTIAL or FULL"
                             + " and is currently null.")
     public ApiResponse<PosBookingDetailResponse> detail(
             @PathVariable Long bookingId,

@@ -15,7 +15,7 @@ secret, JWT hay Entity.
   tiết; gọi chi tiết Booking ONLINE trả 404 `BOOKING_NOT_FOUND`.
 - Danh sách chỉ trả Booking đã `PAID`. Chi tiết đọc được Booking POS ở mọi trạng thái
   (ví dụ PENDING/VIETQR đang chờ chuyển khoản), miễn là đúng kênh POS.
-- `refundStatus` hiện luôn `null`; hoàn tiền thuộc Sprint F.
+- Từ Sprint F, `refundStatus` là `NONE`, `PARTIAL` hoặc `FULL` theo trạng thái các vé của Booking. Số tiền gốc giữ nguyên; refund được ghi riêng.
 - Không trả thông tin thẻ, PIN, chữ ký VNPay hay token.
 
 ## Danh sách
@@ -48,7 +48,7 @@ Sắp xếp `paidAt DESC, bookingId DESC`. Khi lọc `paymentMethod`, backend d�
         "paymentMethod": "CASH",
         "paymentStatus": "PAID",
         "ticketCount": 2,
-        "refundStatus": null
+        "refundStatus": "NONE"
       }
     ],
     "page": 0,

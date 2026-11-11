@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
 public interface ShowtimeSeatRepository extends JpaRepository<ShowtimeSeat, Long> {
+    @Query("select s.seatId from ShowtimeSeat s where s.id in :ids")
+    List<Long> physicalSeatIds(@Param("ids") Collection<Long> ids);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from ShowtimeSeat s where s.showtimeId = :id order by s.seatId")
     List<ShowtimeSeat> findByShowtimeIdForUpdate(@Param("id") Long id);
