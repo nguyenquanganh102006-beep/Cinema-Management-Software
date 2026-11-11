@@ -40,6 +40,7 @@ public class PosBookingService {
     private final SeatRepository seats;
     private final AuditoriumRepository auditoriums;
     private final UserRepository users;
+    private final RefundRepository refunds;
 
     public PosBookingService(
             BookingRepository bookings,
@@ -53,7 +54,7 @@ public class PosBookingService {
             MovieRepository movies,
             SeatRepository seats,
             AuditoriumRepository auditoriums,
-            UserRepository users) {
+            UserRepository users, RefundRepository refunds) {
         this.bookings = bookings;
         this.bookingSeats = bookingSeats;
         this.bookingConcessions = bookingConcessions;
@@ -66,6 +67,7 @@ public class PosBookingService {
         this.seats = seats;
         this.auditoriums = auditoriums;
         this.users = users;
+        this.refunds = refunds;
     }
 
     @Transactional(readOnly = true)
@@ -119,6 +121,7 @@ public class PosBookingService {
                                 size,
                                 Sort.by(Sort.Order.desc("paidAt"), Sort.Order.desc("id"))));
         List<Long> bookingIds = found.getContent().stream().map(Booking::getId).toList();
+        Map<Long,String> refundStatus = refunds.statuses(bookingIds);
         Map<Long, Payment> paymentByBooking =
                 bookingIds.isEmpty()
                         ? Map.of()
@@ -145,7 +148,7 @@ public class PosBookingService {
                             payment == null ? null : payment.getPaymentMethod().name(),
                             payment == null ? null : payment.getStatus().name(),
                             ticketCountByBooking.getOrDefault(booking.getId(), 0L),
-                            null);
+                            refundStatus.getOrDefault(booking.getId(), "NONE"));
                 });
     }
 

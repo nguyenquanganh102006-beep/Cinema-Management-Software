@@ -42,6 +42,10 @@ public class Ticket {
     }
 
     public Long getId() { return id; }
+    public void cancel() {
+        if (status != TicketStatus.VALID) throw new IllegalStateException("Only VALID tickets can be refunded");
+        status = TicketStatus.CANCELLED;
+    }
     public String getTicketCode() { return ticketCode; }
     public Long getBookingId() { return bookingId; }
     public Long getShowtimeSeatId() { return showtimeSeatId; }

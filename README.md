@@ -2,7 +2,7 @@
 
 Hệ thống quản lý và đặt vé rạp chiếu phim: Spring Boot + PostgreSQL, ba giao diện React cho Manager, Staff và Customer.
 
-Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Backend đã có API Master Data (B), Showtime (C), Seat Holding (D) và Checkout/Payment/Ticket (E). Các trang nghiệp vụ sau đăng nhập vẫn là placeholder; giao diện bán vé/checkout thuộc Sprint E/F, còn backend E đã sẵn sàng.
+Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Backend đã có API Master Data (B), Showtime (C), Seat Holding (D), Checkout/Payment/Ticket (E) và Refund/Reports (F). Các trang nghiệp vụ sau đăng nhập vẫn là placeholder; frontend nghiệp vụ chưa được nghiệm thu.
 
 ## Công cụ
 
@@ -134,3 +134,11 @@ Backend E nối tiếp hold của D: `POST /api/v1/bookings` tạo Booking PENDI
 Luồng demo gợi ý trên Swagger: Manager tạo movie/auditorium/ghế/showtime → Staff hoặc Customer giữ ghế → tạo Booking → Staff thanh toán cash/VietQR hoặc Customer lấy URL VNPay → Staff soát vé. VNPay cần `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_PAY_URL`, `VNPAY_RETURN_URL`, `VNPAY_IPN_URL`; VietQR cần `CINEMA_BANK_ACCOUNT`, `CINEMA_BANK_NAME`. Không finalize từ Return URL: chỉ IPN hợp lệ mới phát hành vé.
 
 [API tổng hợp Sprint E](docs/api/checkout-ticket.md), [quyết định Sprint E](docs/decisions/005-checkout-ticket.md), [kiểm thử Sprint E](docs/testing/sprint-e.md). Các tài liệu chi tiết: [Booking](docs/api/bookings.md), [thanh toán POS](docs/api/pos-payments.md), [VNPay](docs/api/vnpay-payment.md), [vé và soát vé](docs/api/tickets.md), [lịch sử CUSTOMER](docs/api/my-bookings.md), [lịch sử POS](docs/api/pos-history.md).
+
+## Demo Refund và Reports (Sprint F)
+
+STAFF tra cứu `/api/v1/refunds/eligibility` bằng `bookingCode` hoặc `ticketCode`, kể cả vé mua ONLINE. Chọn các vé VALID còn ít nhất 30 phút trước giờ chiếu. Manager xác nhận giao tiền mặt tại POS và nhập username/PIN trong request `/api/v1/manager-overrides`; Staff giữ nguyên phiên đăng nhập. Token duyệt có hạn 180 giây, chỉ dùng cho đúng tập vé, Booking, lý do và phiên Staff. Gọi `/api/v1/refunds` với token và cùng nội dung để hoàn vé; retry cùng token trả kết quả cũ. Không hoàn F&B hoặc hồi kho.
+
+MANAGER gọi bảy endpoint `/api/v1/reports/*` với `from`/`to` dạng YYYY-MM-DD; inventory-alerts lấy tồn kho hiện tại không cần ngày. Revenue lấy các Booking đã thanh toán trong kỳ, trừ refund của các Booking đó đến thời điểm truy vấn, nên kỳ cũ có thể đổi sau hoàn vé. Tiền VNPay đã nhận nhưng Booking đang EXCEPTION_PENDING_DECISION được tách riêng.
+
+[API Sprint F](docs/api/refund-reports.md), [quyết định Sprint F](docs/decisions/006-refund-reports.md), [kiểm thử Sprint F](docs/testing/sprint-f.md). V8 bổ sung bảo vệ refund/override, giữ nguyên V1–V7.

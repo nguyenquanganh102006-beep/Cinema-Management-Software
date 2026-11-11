@@ -1,7 +1,6 @@
 package com.cinema.cms;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -215,6 +214,7 @@ class TicketPosHistoryIntegrationTest extends SeatHoldTestSupport {
                 mapper.readTree(
                                 mvc.perform(
                                                 get("/api/v1/pos/bookings")
+                                                        .param("date", "2040-06-06")
                                                         .header(
                                                                 "Authorization",
                                                                 "Bearer " + staffJwt))
@@ -232,7 +232,7 @@ class TicketPosHistoryIntegrationTest extends SeatHoldTestSupport {
                                                 jsonPath("$.data.items[0].ticketCount").value(1))
                                         .andExpect(
                                                 jsonPath("$.data.items[0].refundStatus")
-                                                        .value(nullValue()))
+                                                        .value("NONE"))
                                         .andExpect(
                                                 jsonPath("$.data.items[1].bookingId")
                                                         .value(cashBooking.bookingId()))

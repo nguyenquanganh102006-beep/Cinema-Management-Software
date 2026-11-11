@@ -40,6 +40,9 @@ public class User {
     public AccountStatus getStatus() { return status; }
     public int getSecurityVersion() { return securityVersion; }
     public void setManagerPinHash(String hash) { managerPinHash = hash; }
+    public boolean matchesManagerPin(String pin, org.springframework.security.crypto.password.PasswordEncoder encoder) {
+        return managerPinHash != null && encoder.matches(pin, managerPinHash);
+    }
     public Instant getCreatedAt() { return createdAt; }
     public void updateProfile(String fullName, String email, String phone) { this.fullName = fullName; this.email = email; this.phone = phone; }
     public void changeStatus(AccountStatus status) { this.status = status; }
