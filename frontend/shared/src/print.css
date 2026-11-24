@@ -1,0 +1,28 @@
+@media print {
+  .sidebar,
+  header,
+  .no-print,
+  .skip-link,
+  .workspace-main a,
+  button {
+    display: none !important;
+  }
+  .workspace,
+  .workspace-main {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+  .ticket {
+    break-inside: avoid;
+    border: 1px solid #222;
+    margin: 1cm 0;
+    padding: 1cm;
+  }
+  .receipt img {
+    width: 40mm;
+    height: 40mm;
+  }
+}

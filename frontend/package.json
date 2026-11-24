@@ -19,19 +19,30 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && npm run build --workspaces --if-present",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test --project=chromium-mock",
+    "test:e2e:mock": "playwright test --project=chromium-mock --project=firefox-mock --project=webkit-mock",
+    "test:e2e:live": "playwright test --project=chromium-live",
+    "test:e2e:edge": "playwright test --project=edge-mock"
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "react-router-dom": "^7.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^22.0.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@types/node": "^22.0.0",
+    "jsdom": "^30.1.3",
+    "msw": "^2.15.0",
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^4.0.18",
-    "@playwright/test": "^1.58.2"
+    "vitest": "^4.0.18"
   }
 }
