@@ -21,6 +21,7 @@ POST /api/v1/concessions/combos  { "name": "Combo đôi", "price": 120000,
 ```
 
 Quy tắc:
+- Response list/get/create/update/status đều có `availableQuantity` và `lowStock`. Món active lấy tồn thực; combo lấy giá trị nhỏ nhất của `floor(tồn thành phần / số lượng cần)`. Món/combo inactive có availability 0; component inactive/thiếu làm combo không bán được. Đây là snapshot lúc đọc, không giữ hàng; checkout vẫn khóa và kiểm tra tồn khi commit.
 - Tên món và combo duy nhất, không phân biệt hoa thường. Giá không âm, tối đa 8 chữ số nguyên và 2 chữ số thập phân.
 - Thành phần combo: ít nhất 1 món, mỗi món một lần, phải là **món lẻ đang bán**, không lồng combo.
 - Ngừng bán món đang nằm trong **combo đang bán** bị chặn (409). Hãy ngừng combo trước. Bật lại combo cần mọi món thành phần đang bán.
@@ -61,3 +62,5 @@ POST /api/v1/inventory/5/restocks   { "quantity": 50, "note": "Lô A" }
 | `CONCESSION_NAME_EXISTS` | 409 | Trùng tên |
 | `CONCESSION_ITEM_IN_ACTIVE_COMBO` | 409 | Ngừng bán món đang nằm trong combo đang bán |
 | `CONCESSION_COMBO_COMPONENT_INACTIVE` | 409 | Bật combo khi có món thành phần ngừng bán |
+
+Cập nhật 23/11/2026: đồng nhất availability trong response ghi và đọc, bổ sung test mutation/active/quyền catalog trong `ConcessionIntegrationTest`.

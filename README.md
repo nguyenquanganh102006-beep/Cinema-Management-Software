@@ -2,7 +2,7 @@
 
 Hệ thống quản lý và đặt vé rạp chiếu phim: Spring Boot + PostgreSQL, ba giao diện React cho Manager, Staff và Customer.
 
-Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Backend đã có API Master Data (B), Showtime (C), Seat Holding (D), Checkout/Payment/Ticket (E) và Refund/Reports (F). Các trang nghiệp vụ sau đăng nhập vẫn là placeholder; frontend nghiệp vụ chưa được nghiệm thu.
+Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Backend đã có API Master Data (B), Showtime (C), Seat Holding (D), Checkout/Payment/Ticket (E) và Refund/Reports (F). Frontend đã có các luồng nghiệp vụ trên ba portal; nghiệm thu G5 đầy đủ vẫn còn các giới hạn được ghi trong tài liệu kiểm thử.
 
 ## Công cụ
 
@@ -41,7 +41,7 @@ Mở thêm hai terminal trong frontend để chạy `npm run dev:staff` và `npm
 | Staff POS | http://localhost:3002 | staff01 |
 | Customer | http://localhost:3003 | customer01 |
 
-Ba user dùng DEMO_PASSWORD trong `.env`, chỉ được tạo khi profile local chạy lần đầu. Thay biến này không tự reset tài khoản đã tồn tại. DEMO_MANAGER_PIN được hash cho Manager, chưa có API Override.
+Ba user dùng DEMO_PASSWORD trong `.env`, chỉ được tạo khi profile local chạy lần đầu. Thay biến này không tự reset tài khoản đã tồn tại. DEMO_MANAGER_PIN được hash cho Manager, API Manager override dành cho hoàn vé tại POS.
 
 Frontend gọi http://localhost:8080/api/v1. Muốn đổi, copy `.env.example` của từng app thành `.env.local`, chỉnh VITE_API_URL và restart Vite. Backend CORS đọc CORS_ALLOWED_ORIGINS. Địa chỉ chuyển portal được cấu hình tại backend bằng PORTAL_MANAGER_URL, PORTAL_STAFF_URL, PORTAL_CUSTOMER_URL; mặc định localhost:3001/3002/3003. Địa chỉ ngoài loopback phải dùng HTTPS.
 
@@ -108,11 +108,11 @@ docs/                 Bối cảnh, plan, API, schema, decision
 ```
 
 - [Bối cảnh yêu cầu](docs/architecture/foundation-context.md)
-- [Kế hoạch Foundation](docs/architecture/foundation-plan.md)
+- [Contract frontend](docs/ui-ux/frontend-contracts.md)
 - [Quyết định triển khai](docs/decisions/001-foundation.md)
 - [Auth API](docs/api/auth.md)
 - [Schema bàn giao](docs/database/foundation-schema.md)
-- [Kết quả build/test và giới hạn kiểm chứng](docs/architecture/foundation-validation.md)
+- [Hướng dẫn kiểm thử và giới hạn kiểm chứng](docs/testing/frontend.md)
 
 Flyway quản lý schema; Hibernate chỉ validate. Không chạy nguyên SQL nguồn vì có DROP SCHEMA và seed chưa nhất quán. Migration đã chia sẻ phải được giữ nguyên, thêm version mới khi thay đổi.
 
@@ -142,3 +142,7 @@ STAFF tra cứu `/api/v1/refunds/eligibility` bằng `bookingCode` hoặc `ticke
 MANAGER gọi bảy endpoint `/api/v1/reports/*` với `from`/`to` dạng YYYY-MM-DD; inventory-alerts lấy tồn kho hiện tại không cần ngày. Revenue lấy các Booking đã thanh toán trong kỳ, trừ refund của các Booking đó đến thời điểm truy vấn, nên kỳ cũ có thể đổi sau hoàn vé. Tiền VNPay đã nhận nhưng Booking đang EXCEPTION_PENDING_DECISION được tách riêng.
 
 [API Sprint F](docs/api/refund-reports.md), [quyết định Sprint F](docs/decisions/006-refund-reports.md), [kiểm thử Sprint F](docs/testing/sprint-f.md). V8 bổ sung bảo vệ refund/override, giữ nguyên V1–V7.
+
+Frontend G5: [contract API](docs/ui-ux/frontend-contracts.md), [hướng dẫn kiểm thử](docs/testing/frontend.md), [bằng chứng và giới hạn 27 màn](docs/testing/g5-validation-2026-11-23.md).
+
+Đọc code: [Code walkthrough](docs/code-walkthrough/README.md) mô tả kiến trúc, luồng xử lý, input/output frontend và backend, cùng các invariant booking/thanh toán/hoàn vé.
