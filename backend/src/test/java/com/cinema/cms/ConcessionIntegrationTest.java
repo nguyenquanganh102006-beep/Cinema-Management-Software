@@ -93,6 +93,43 @@ class ConcessionIntegrationTest {
     private int stockOf(int itemId) { return jdbc.queryForObject("select stock_quantity from concession_inventory where item_id=?", Integer.class, itemId); }
     private int movementCount(int itemId) { return jdbc.queryForObject("select count(*) from inventory_transactions where item_id=?", Integer.class, itemId); }
 
+    @Test void mutationResponsesExposeTheSameAvailabilityAsCatalogReads() throws Exception {
+        String manager = tokenFor(UserRole.MANAGER), key = unique();
+        int item = createItem(manager, "Mutation stock " + key, 20000);
+        jdbc.update("update concession_inventory set stock_quantity=24 where item_id=?", item);
+        send(patch("/api/v1/concessions/" + item), manager, Map.of("name", "Updated stock " + key, "price", 22000))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.availableQuantity").value(24))
+            .andExpect(jsonPath("$.data.lowStock").value(false));
+        String combo = send(post("/api/v1/concessions/combos"), manager, comboBody("Mutation combo " + key, 40000, comp(item, 2)))
+            .andExpect(status().isCreated()).andExpect(jsonPath("$.data.availableQuantity").value(12))
+            .andReturn().getResponse().getContentAsString();
+        int comboId = mapper.readTree(combo).path("data").path("id").asInt();
+        send(patch("/api/v1/concessions/combos/" + comboId), manager, comboBody("Mutation combo " + key, 40000, comp(item, 3)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.availableQuantity").value(8));
+        send(patch("/api/v1/concessions/" + comboId + "/status"), manager, Map.of("active", false))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.availableQuantity").value(0));
+        for (String token : List.of(tokenFor(UserRole.CUSTOMER), tokenFor(UserRole.STAFF))) {
+            send(get("/api/v1/concessions/" + comboId), token, null).andExpect(status().isNotFound());
+            send(get("/api/v1/inventory"), token, null).andExpect(status().isForbidden());
+        }
+    }
+
+    @Test void saleAvailabilityUsesComponentStockAndIsReadableWithoutInventoryPermission() throws Exception {
+        String manager = tokenFor(UserRole.MANAGER), customer = tokenFor(UserRole.CUSTOMER), staff = tokenFor(UserRole.STAFF);
+        int a = createItem(manager, "Avail A " + unique(), 20000), b = createItem(manager, "Avail B " + unique(), 30000);
+        int combo = createCombo(manager, "Avail combo " + unique(), comp(a, 2), comp(b, 3));
+        jdbc.update("update concession_inventory set stock_quantity=11 where item_id=?", a);
+        jdbc.update("update concession_inventory set stock_quantity=6 where item_id=?", b);
+        for (String token : List.of(customer, staff)) {
+            send(get("/api/v1/concessions/" + combo), token, null).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.availableQuantity").value(2)).andExpect(jsonPath("$.data.lowStock").value(true));
+            send(get("/api/v1/concessions/" + a), token, null).andExpect(jsonPath("$.data.availableQuantity").value(11));
+        }
+        send(get("/api/v1/inventory"), customer, null).andExpect(status().isForbidden());
+        jdbc.update("update concession_inventory set stock_quantity=0 where item_id=?", b);
+        send(get("/api/v1/concessions/" + combo), customer, null).andExpect(jsonPath("$.data.availableQuantity").value(0));
+    }
+
     @Test void createsItemWithItsInventoryRowAndRejectsDuplicateNames() throws Exception {
         String manager = tokenFor(UserRole.MANAGER), name = "Bắp " + unique();
         String json = send(post("/api/v1/concessions"), manager, Map.of("name", "  " + name + " ", "price", 55000)).andExpect(status().isCreated())

@@ -44,7 +44,7 @@ public class ShowtimeService {
         Showtime saved = showtimes.saveAndFlush(new Showtime(movie.getId(), r.auditoriumId(), start, end, basePrice()));
         Instant now = clock.instant();
         inventory.saveAllAndFlush(physical.stream().map(s -> new ShowtimeSeat(saved.getId(), s.getId(), now)).toList());
-        return ShowtimeResponse.from(saved);
+        return response(saved);
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -62,12 +62,12 @@ public class ShowtimeService {
         Instant start = time.startTime(r.startTime()), end = time.endTime(start, movie.getDurationMinutes());
         checkConflict(room, start, end, id);
         show.update(movie.getId(), start, end);
-        return ShowtimeResponse.from(showtimes.saveAndFlush(show));
+        return response(showtimes.saveAndFlush(show));
     }
 
     @Transactional(readOnly = true)
     public ShowtimeResponse get(Long id) {
-        return ShowtimeResponse.from(showtimes.findById(id).orElseThrow(ShowtimeService::notFound));
+        return response(showtimes.findById(id).orElseThrow(ShowtimeService::notFound));
     }
 
     @Transactional(readOnly = true)
@@ -88,18 +88,14 @@ public class ShowtimeService {
         }
         Instant from = day == null ? null : day.atStartOfDay(ShowtimeTimeService.BUSINESS_ZONE).toInstant();
         Instant until = day == null ? null : day.plusDays(1).atStartOfDay(ShowtimeTimeService.BUSINESS_ZONE).toInstant();
-        Specification<Showtime> spec = (root, query, cb) -> {
-            List<jakarta.persistence.criteria.Predicate> p = new ArrayList<>();
-            if (movie != null) p.add(cb.equal(root.get("movieId"), movie));
-            if (room != null) p.add(cb.equal(root.get("auditoriumId"), room));
-            if (from != null) {
-                p.add(cb.greaterThanOrEqualTo(root.get("startTime"), from));
-                p.add(cb.lessThan(root.get("startTime"), until));
-            }
-            return cb.and(p.toArray(new jakarta.persistence.criteria.Predicate[0]));
-        };
-        return PageResponse.from(showtimes.findAll(spec, PageRequest.of(pageNumber, pageSize,
-                Sort.by(Sort.Order.asc("startTime"), Sort.Order.asc("id")))), ShowtimeResponse::from);
+        var found = showtimes.listing(movie, room, from, until, PageRequest.of(pageNumber, pageSize,
+                Sort.by(Sort.Order.asc("startTime"), Sort.Order.asc("id"))));
+        return PageResponse.from(found, row -> ShowtimeResponse.from(row.getShowtime(), row.getMovie(), row.getAuditorium()));
+    }
+
+    private ShowtimeResponse response(Showtime show) {
+        return ShowtimeResponse.from(show, movies.findById(show.getMovieId()).orElseThrow(ShowtimeService::notFound),
+            auditoriums.findById(show.getAuditoriumId()).orElseThrow(ShowtimeService::notFound));
     }
 
     private void lockActiveRoom(Integer id) {

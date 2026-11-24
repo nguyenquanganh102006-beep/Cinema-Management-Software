@@ -37,14 +37,15 @@ public class ConcessionService {
         if (requestedCombo != null) spec = spec.and((root, query, cb) -> cb.equal(root.get("combo"), requestedCombo));
         Page<ConcessionItem> found = items.findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Order.asc("name"), Sort.Order.asc("id"))));
         Map<Integer, String> names = namesOfComponents(found.getContent());
-        return PageResponse.from(found, i -> ConcessionResponse.from(i, names));
+        Map<Integer, ConcessionInventory> stock = stockFor(found.getContent());
+        return PageResponse.from(found, i -> withAvailability(i, names, stock));
     }
 
     @Transactional(readOnly = true)
     public ConcessionResponse get(Integer id, UserRole viewer) {
         ConcessionItem item = items.findById(id).orElseThrow(ConcessionService::notFound);
         if (viewer != UserRole.MANAGER && !item.isActive()) throw notFound();
-        return ConcessionResponse.from(item, namesOfComponents(List.of(item)));
+        return withAvailability(item, namesOfComponents(List.of(item)), stockFor(List.of(item)));
     }
 
     @Transactional
@@ -53,7 +54,7 @@ public class ConcessionService {
         try {
             ConcessionItem item = items.saveAndFlush(ConcessionItem.simple(r.name(), money(r.price())));
             inventory.saveAndFlush(new ConcessionInventory(item));
-            return ConcessionResponse.from(item, Map.of());
+            return withAvailability(item, Map.of(), stockFor(List.of(item)));
         } catch (DataIntegrityViolationException e) {
             throw translate(e);
         }
@@ -65,7 +66,8 @@ public class ConcessionService {
         requireFreeName(r.name(), id);
         item.update(r.name(), money(r.price()));
         try {
-            return ConcessionResponse.from(items.saveAndFlush(item), Map.of());
+            items.saveAndFlush(item);
+            return withAvailability(item, Map.of(), stockFor(List.of(item)));
         } catch (DataIntegrityViolationException e) {
             throw translate(e);
         }
@@ -77,7 +79,7 @@ public class ConcessionService {
         Map<Integer, Integer> components = validateComponents(r.components());
         try {
             ConcessionItem combo = items.saveAndFlush(ConcessionItem.combo(r.name(), money(r.price()), components));
-            return ConcessionResponse.from(combo, namesOfComponents(List.of(combo)));
+            return withAvailability(combo, namesOfComponents(List.of(combo)), stockFor(List.of(combo)));
         } catch (DataIntegrityViolationException e) {
             throw translate(e);
         }
@@ -91,7 +93,8 @@ public class ConcessionService {
         combo.update(r.name(), money(r.price()));
         combo.replaceComponents(components);
         try {
-            return ConcessionResponse.from(items.saveAndFlush(combo), namesOfComponents(List.of(combo)));
+            items.saveAndFlush(combo);
+            return withAvailability(combo, namesOfComponents(List.of(combo)), stockFor(List.of(combo)));
         } catch (DataIntegrityViolationException e) {
             throw translate(e);
         }
@@ -107,7 +110,35 @@ public class ConcessionService {
             throw new ApiException(409, "CONCESSION_COMBO_COMPONENT_INACTIVE", "Combo có món thành phần đang ngừng bán, hãy bật lại món đó trước");
         }
         item.changeActive(r.active());
-        return ConcessionResponse.from(item, namesOfComponents(List.of(item)));
+        return withAvailability(item, namesOfComponents(List.of(item)), stockFor(List.of(item)));
+    }
+
+    private Map<Integer, ConcessionInventory> stockFor(List<ConcessionItem> rows) {
+        Set<Integer> ids = new HashSet<>();
+        rows.forEach(i -> { if (i.isCombo()) ids.addAll(i.getComponents().keySet()); else ids.add(i.getId()); });
+        return inventory.findAllById(ids).stream().collect(Collectors.toMap(ConcessionInventory::getItemId, i -> i));
+    }
+
+    private ConcessionResponse withAvailability(ConcessionItem item, Map<Integer, String> names, Map<Integer, ConcessionInventory> stock) {
+        ConcessionResponse base = ConcessionResponse.from(item, names);
+        int quantity = 0;
+        boolean low = false;
+        if (item.isActive()) {
+            if (item.isCombo() && !item.getComponents().isEmpty()) {
+                quantity = Integer.MAX_VALUE;
+                for (var c : item.getComponents().entrySet()) {
+                    ConcessionInventory component = stock.get(c.getKey());
+                    int available = component == null || !component.getItem().isActive() ? 0 : component.getStockQuantity();
+                    quantity = Math.min(quantity, available / c.getValue());
+                    low |= component == null || available <= component.getLowStockThreshold();
+                }
+            } else if (!item.isCombo()) {
+                ConcessionInventory row = stock.get(item.getId());
+                quantity = row == null ? 0 : row.getStockQuantity();
+                low = row == null || quantity <= row.getLowStockThreshold();
+            }
+        }
+        return new ConcessionResponse(base.id(), base.name(), base.price(), base.combo(), base.active(), base.components(), quantity, low);
     }
 
     private ConcessionItem lockSimple(Integer id) {

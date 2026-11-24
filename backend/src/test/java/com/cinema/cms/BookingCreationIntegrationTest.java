@@ -379,11 +379,25 @@ class BookingCreationIntegrationTest extends SeatHoldTestSupport {
     void secondBookingForTheSameHoldReturnsConflict() throws Exception {
         var held = holds.hold(show, new HoldSeatsRequest(List.of(a1)), staff);
 
-        postBooking(staffJwt, bookingBody(show, held.holdToken(), null, null))
-                .andExpect(status().isCreated());
+        String created = postBooking(staffJwt, bookingBody(show, held.holdToken(), null, null))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String id = mapper.readTree(created).path("data").path("bookingId").asText();
         postBooking(staffJwt, bookingBody(show, held.holdToken(), null, null))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("BOOKING_ALREADY_EXISTS"));
+                .andExpect(jsonPath("$.code").value("BOOKING_ALREADY_EXISTS"))
+                .andExpect(jsonPath("$.details.bookingId").value(id));
+        // Knowledge of another session's hold token must not disclose its booking ID.
+        postBooking(customerJwt, bookingBody(show, held.holdToken(), null, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.details.bookingId").doesNotExist());
+        String anotherSession = jwt.issue(users.findById(staff.userId()).orElseThrow());
+        postBooking(anotherSession, bookingBody(show, held.holdToken(), null, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.details.bookingId").doesNotExist());
+        clock.set(clock.instant().plusSeconds(400));
+        postBooking(staffJwt, bookingBody(show, held.holdToken(), null, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.details.bookingId").value(id));
     }
 
     @Test

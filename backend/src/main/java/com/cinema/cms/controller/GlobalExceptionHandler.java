@@ -31,7 +31,7 @@ public class GlobalExceptionHandler {
     }
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ApiErrorResponse> api(ApiException e, HttpServletRequest req) {
-        return response(e.getStatus(), e.getCode(), e.getMessage(), Map.of(), req);
+        return response(e.getStatus(), e.getCode(), e.getMessage(), e.getDetails(), req);
     }
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiErrorResponse> validation(MethodArgumentNotValidException e, HttpServletRequest req) {

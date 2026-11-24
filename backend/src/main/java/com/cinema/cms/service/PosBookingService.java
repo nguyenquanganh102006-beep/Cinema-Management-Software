@@ -276,7 +276,8 @@ public class PosBookingService {
                 ticketLines,
                 concessionLines,
                 paymentInfo,
-                performedBy);
+                performedBy,
+                refunds.statuses(List.of(bookingId)).getOrDefault(bookingId, "NONE"));
     }
 
     private static OffsetDateTime offset(Instant instant) {

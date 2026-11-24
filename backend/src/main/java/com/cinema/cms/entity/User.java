@@ -47,4 +47,5 @@ public class User {
     public void updateProfile(String fullName, String email, String phone) { this.fullName = fullName; this.email = email; this.phone = phone; }
     public void changeStatus(AccountStatus status) { this.status = status; }
     public void invalidateSessions() { this.securityVersion++; }
+    public void resetPassword(String hash) { this.passwordHash = hash; invalidateSessions(); }
 }

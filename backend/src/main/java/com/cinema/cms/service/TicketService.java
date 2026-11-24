@@ -72,6 +72,16 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
+    public List<TicketResponse> lookup(String code, SessionPrincipal principal) {
+        requireStaff(principal);
+        if (code == null || code.isBlank()) throw new ApiException(400, "VALIDATION_ERROR", "Mã vé hoặc đơn là bắt buộc");
+        var ticket = tickets.findByTicketCode(code.strip());
+        if (ticket.isPresent()) return List.of(getByCode(code, principal));
+        Booking booking = bookings.findByBookingCode(code.strip()).orElseThrow(TicketService::bookingNotFound);
+        return listForBooking(booking.getId(), principal);
+    }
+
+    @Transactional(readOnly = true)
     public List<TicketResponse> listForBooking(Long bookingId, SessionPrincipal principal) {
         if (bookingId == null || bookingId <= 0) throw bookingNotFound();
         Booking booking = bookings.findById(bookingId).orElseThrow(TicketService::bookingNotFound);
@@ -86,7 +96,7 @@ public class TicketService {
     public TicketValidationResponse validate(
             TicketValidationRequest request, SessionPrincipal principal) {
         requireStaff(principal);
-        if (request == null || request.ticketCode() == null || request.ticketCode().isBlank()) {
+        if (request == null || request.ticketCode() == null || request.ticketCode().isBlank() || request.showtimeId() == null || request.showtimeId() <= 0) {
             throw new ApiException(400, "VALIDATION_ERROR", "Mã vé là bắt buộc");
         }
 
@@ -101,6 +111,8 @@ public class TicketService {
         ShowtimeSeat showtimeSeat = showtimeSeat(ticket);
         Showtime showtime =
                 showtimes.findById(showtimeSeat.getShowtimeId()).orElseThrow(TicketService::ticketNotFound);
+        if (!showtime.getId().equals(request.showtimeId()))
+            throw new ApiException(422, "TICKET_WRONG_SHOWTIME", "Vé không thuộc suất chiếu tại cửa");
         Movie movie =
                 movies.findById(showtime.getMovieId()).orElseThrow(TicketService::ticketNotFound);
         Seat seat = seats.findById(showtimeSeat.getSeatId()).orElseThrow(TicketService::ticketNotFound);

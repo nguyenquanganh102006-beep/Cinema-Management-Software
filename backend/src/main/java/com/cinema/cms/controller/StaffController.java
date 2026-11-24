@@ -23,6 +23,13 @@ public class StaffController {
 
     public StaffController(StaffService staff) { this.staff = staff; }
 
+    @PostMapping(value = "/{id}/reset-password", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Reset a STAFF password and revoke existing sessions")
+    public void resetPassword(@PathVariable Long id, @Valid @RequestBody ResetStaffPasswordRequest request) {
+        staff.resetPassword(id, request);
+    }
+
     @GetMapping
     @Operation(summary = "Danh sách nhân viên, tìm theo tên hoặc tên đăng nhập, lọc trạng thái, phân trang")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "Trang nhân viên"),

@@ -95,7 +95,7 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
     }
     @Test void usedTicketCannotGetApproval() {
         var b=paid(List.of(a1),false,null);long id=ids(b.bookingId()).getFirst();
-        ticketService.validate(new TicketValidationRequest(code(id),null),staff);
+        ticketService.validate(new TicketValidationRequest(code(id),show,null),staff);
         assertThatThrownBy(() -> refunds.approve(approval(b.bookingId(),List.of(id)),staff)).isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("TICKET_NOT_REFUNDABLE"));
     }
     @Test void approvalBindsSessionSelectionReasonAndCashConfirmation() {
@@ -142,7 +142,7 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
         var results=parallel(() -> refunds.refund(first,staff),() -> refunds.refund(second,staff));
         assertThat(results.stream().filter(RefundResponse.class::isInstance)).hasSize(1);assertThat(records(b.bookingId())).isEqualTo(1);
         var other=paid(List.of(a2),false,null);long t=ids(other.bookingId()).getFirst();var req=request(other.bookingId(),List.of(t));
-        var scan=parallel(() -> refunds.refund(req,staff),() -> ticketService.validate(new TicketValidationRequest(code(t),null),staff));
+        var scan=parallel(() -> refunds.refund(req,staff),() -> ticketService.validate(new TicketValidationRequest(code(t),show,null),staff));
         assertThat(scan.stream().filter(r -> !(r instanceof ApiException))).hasSize(1);
         assertThat(ticketStatus(t)).isIn("USED","CANCELLED");
     }

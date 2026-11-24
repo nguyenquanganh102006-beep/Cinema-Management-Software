@@ -48,7 +48,7 @@ public class StaffService {
 
     @Transactional
     public StaffResponse update(Long id, UpdateStaffRequest r) {
-        User staff = find(id);
+        User staff = lock(id);
         if (users.existsByEmailAndIdNot(r.email(), id)) throw conflict("EMAIL_ALREADY_EXISTS", "Email đã được sử dụng");
         if (users.existsByPhoneAndIdNot(r.phone(), id)) throw conflict("PHONE_ALREADY_EXISTS", "Số điện thoại đã được sử dụng");
         staff.updateProfile(r.fullName(), r.email(), r.phone());
@@ -58,7 +58,7 @@ public class StaffService {
 
     @Transactional
     public StaffResponse changeStatus(Long id, StaffStatusRequest r) {
-        User staff = find(id);
+        User staff = lock(id);
         AccountStatus target = r.active() ? AccountStatus.ACTIVE : AccountStatus.INACTIVE;
         if (staff.getStatus() != target) {
             staff.changeStatus(target);
@@ -69,6 +69,18 @@ public class StaffService {
 
     private User find(Long id) {
         return users.findByIdAndRole(id, UserRole.STAFF).orElseThrow(() -> new ApiException(404, "STAFF_NOT_FOUND", "Không tìm thấy nhân viên"));
+    }
+    private User lock(Long id) {
+        // Profile/status writes also take this lock so they cannot overwrite a concurrent
+        // password reset or reuse the same security version from a stale entity.
+        return users.lockByIdAndRole(id, UserRole.STAFF).orElseThrow(() -> new ApiException(404, "STAFF_NOT_FOUND", "Không tìm thấy nhân viên"));
+    }
+    @Transactional
+    public void resetPassword(Long id, ResetStaffPasswordRequest request) {
+        AuthService.checkPasswordLength(request.newPassword());
+        User staff = lock(id);
+        staff.resetPassword(passwords.encode(request.newPassword()));
+        users.saveAndFlush(staff);
     }
     private static ApiException conflict(String code, String message) { return new ApiException(409, code, message); }
     private static AccountStatus parseStatus(String value) {

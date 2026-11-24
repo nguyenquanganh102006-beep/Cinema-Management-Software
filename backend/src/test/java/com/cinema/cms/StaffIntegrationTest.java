@@ -3,9 +3,12 @@ package com.cinema.cms;
 import com.cinema.cms.entity.*;
 import com.cinema.cms.repository.UserRepository;
 import com.cinema.cms.service.JwtService;
+import com.cinema.cms.service.StaffService;
+import com.cinema.cms.dto.ResetStaffPasswordRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
+import java.util.concurrent.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -18,6 +21,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -52,6 +57,7 @@ class StaffIntegrationTest {
     @Autowired PasswordEncoder passwords;
     @Autowired JwtService jwt;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactions;
 
     private String unique() { return UUID.randomUUID().toString().substring(0, 8); }
     private String phone() { return "09" + String.format("%010d", Math.abs(UUID.randomUUID().getMostSignificantBits() % 10000000000L)); }
@@ -77,6 +83,59 @@ class StaffIntegrationTest {
     }
     private ResultActions login(String username, String password) throws Exception {
         return send(post("/api/v1/auth/login"), null, Map.of("username", username, "password", password));
+    }
+
+    @Test void concurrentPasswordResetsEachAdvanceSecurityVersion() throws Exception {
+        User target = newUser(UserRole.STAFF);
+        CountDownLatch encoding = new CountDownLatch(2);
+        PasswordEncoder coordinated = new PasswordEncoder() {
+            public String encode(CharSequence raw) {
+                encoding.countDown();
+                try {
+                    // Widen the read/update race. A locked implementation serializes before
+                    // reaching this point, so the first writer proceeds after the bounded wait.
+                    encoding.await(1, TimeUnit.SECONDS);
+                } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
+                return passwords.encode(raw);
+            }
+            public boolean matches(CharSequence raw, String hash) { return passwords.matches(raw, hash); }
+        };
+        StaffService service = new StaffService(users, coordinated);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CyclicBarrier start = new CyclicBarrier(2);
+        try {
+            List<Future<?>> calls = new ArrayList<>();
+            for (String password : List.of("ConcurrentPassA!", "ConcurrentPassB!")) {
+                calls.add(pool.submit(() -> {
+                    start.await(5, TimeUnit.SECONDS);
+                    new TransactionTemplate(transactions).executeWithoutResult(status ->
+                        service.resetPassword(target.getId(), new ResetStaffPasswordRequest(password)));
+                    return null;
+                }));
+            }
+            for (Future<?> call : calls) call.get(15, TimeUnit.SECONDS);
+        } finally { pool.shutdownNow(); }
+        User updated = users.findById(target.getId()).orElseThrow();
+        assertThat(updated.getSecurityVersion()).isEqualTo(target.getSecurityVersion() + 2);
+        assertThat(passwords.matches("ConcurrentPassA!", updated.getPasswordHash())
+            || passwords.matches("ConcurrentPassB!", updated.getPasswordHash())).isTrue();
+    }
+
+    @Test void managerResetHashesPasswordRevokesSessionsAndRejectsOtherRolesAndTargets() throws Exception {
+        User target = newUser(UserRole.STAFF);
+        String oldToken = jwt.issue(target), manager = tokenFor(UserRole.MANAGER);
+        String newPassword = "ChangedPass456!";
+        for (UserRole role : List.of(UserRole.STAFF, UserRole.CUSTOMER))
+            send(post("/api/v1/staff/" + target.getId() + "/reset-password"), tokenFor(role), Map.of("newPassword", newPassword)).andExpect(status().isForbidden());
+        for (UserRole role : List.of(UserRole.MANAGER, UserRole.CUSTOMER))
+            send(post("/api/v1/staff/" + newUser(role).getId() + "/reset-password"), manager, Map.of("newPassword", newPassword)).andExpect(status().isNotFound());
+        send(post("/api/v1/staff/" + target.getId() + "/reset-password"), manager, Map.of("newPassword", "short")).andExpect(status().isBadRequest());
+        send(post("/api/v1/staff/" + target.getId() + "/reset-password"), manager, Map.of("newPassword", newPassword)).andExpect(status().isNoContent());
+        User updated = users.findById(target.getId()).orElseThrow();
+        assertThat(passwords.matches(newPassword, updated.getPasswordHash())).isTrue();
+        assertThat(updated.getSecurityVersion()).isEqualTo(target.getSecurityVersion() + 1);
+        send(get("/api/v1/auth/me"), oldToken, null).andExpect(status().isUnauthorized());
+        send(post("/api/v1/auth/login"), null, Map.of("username", target.getUsername(), "password", newPassword)).andExpect(status().isOk());
     }
 
     @Test void createsStaffWithHashedPasswordFixedRoleAndNoSecretsInResponse() throws Exception {
