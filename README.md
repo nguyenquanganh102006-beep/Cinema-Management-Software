@@ -207,9 +207,21 @@ Profile `local` tạo các tài khoản demo nếu chưa tồn tại:
 | Staff | `staff01`, `staff02`, `staff03`, `staff04` |
 | Customer | `customer01` |
 
-Các tài khoản dùng chung giá trị `DEMO_PASSWORD` trong `.env`. `DEMO_MANAGER_PIN` được dùng cho bước quản lý xác nhận hoàn tiền. Mật khẩu và PIN được hash trước khi lưu. Đổi giá trị trong `.env` không tự đổi thông tin của tài khoản đã tạo trước đó.
+Các tài khoản dùng chung giá trị `DEMO_PASSWORD` trong `.env`. `DEMO_MANAGER_PIN` được dùng cho bước quản lý xác nhận hoàn tiền. Mật khẩu và PIN được hash trước khi lưu. Đây là username dành riêng cho dữ liệu local demo; profile `local` nạp lại hash từ `.env` khi backend khởi động.
 
 Seeder demo trong profile `local` bổ sung catalog phim, lịch chiếu, layout phòng, ảnh F&B và dữ liệu giao dịch để xem dashboard. Mốc hiện tại của bộ dữ liệu demo là khoảng 1.000 vé đã bán và 50 vé hoàn; dữ liệu được ghi vào PostgreSQL, không phải dữ liệu frontend hardcode. Seeder được thiết kế để chạy lặp mà không nhân bản lịch sử đã nạp.
+
+### Database snapshot
+
+Repository có snapshot PostgreSQL đã làm sạch tại [`backend/data/cinema-demo.dump`](backend/data/cinema-demo.dump). Snapshot gồm schema Flyway, 50 phim, 216 suất chiếu, 12 phòng với 240 ghế, 454 booking, 1.048 vé (998 vé đã bán/đã dùng và 50 vé hoàn), cùng dữ liệu F&B mẫu. Snapshot không chứa giao dịch cá nhân từ database phát triển. Hash mật khẩu và PIN trong file snapshot đã bị vô hiệu hóa; khi khởi động backend với profile `local`, sáu tài khoản demo được đặt lại theo `DEMO_PASSWORD` và `DEMO_MANAGER_PIN` trong `.env`.
+
+Để import snapshot vào **một database mới** mà không ghi đè `cinema_db` hiện có:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\database\Restore-DemoDatabase.ps1 -DatabaseName cinema_demo
+```
+
+Sau đó đổi `DB_URL` trong `.env` thành `jdbc:postgresql://localhost:5433/cinema_demo` rồi khởi động backend và frontend như phần trên. Cần dùng PostgreSQL cùng major version với Compose (18). Script từ chối tạo database nếu tên đó đã tồn tại.
 
 Để dừng database mà giữ dữ liệu:
 

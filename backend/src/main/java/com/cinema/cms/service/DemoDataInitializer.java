@@ -63,8 +63,17 @@ public class DemoDataInitializer implements ApplicationRunner {
         seedConcessionImages();
     }
     private void seed(String username, String phone, UserRole role) {
-        if (users.existsByUsername(username)) return;
         String fullName = username.startsWith("staff") ? "Nhân viên " + username.substring("staff".length()) : username;
+        var existing = users.findByUsernameOrEmail(username, username + "@cinema.local");
+        if (existing.isPresent()) {
+            User user = existing.get();
+            if (user.getRole() != role) throw new IllegalStateException("Demo username has an unexpected role");
+            // Local database snapshots never contain usable password or PIN hashes.
+            // Refresh the reserved demo accounts from this machine's ignored .env at startup.
+            user.resetPassword(passwords.encode(password));
+            if (role == UserRole.MANAGER) user.setManagerPinHash(passwords.encode(pin));
+            return;
+        }
         User user = new User(username, fullName, username + "@cinema.local", phone, passwords.encode(password), role);
         if (role == UserRole.MANAGER) user.setManagerPinHash(passwords.encode(pin));
         users.save(user);
