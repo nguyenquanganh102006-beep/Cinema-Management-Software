@@ -49,7 +49,7 @@ export function SeatMap({
                   <button
                     key={s.seatId}
                     className={`seat ${s.seatType.toLowerCase()} ${s.heldByMe ? "mine" : s.status.toLowerCase()} ${selected.includes(s.seatId) ? "selected" : ""}`}
-                    aria-label={`${s.row}${s.number} · ${s.seatType} · ${status}`}
+                    aria-label={`${s.row}${s.number}, ${s.seatType}, ${status}`}
                     aria-pressed={selected.includes(s.seatId)}
                     disabled={
                       locked ||
@@ -67,9 +67,13 @@ export function SeatMap({
           </div>
         ))}
       </div>
-      <p className="muted">
-        Trống: số ghế · … Đang giữ · × Đã bán · ✓ Đã chọn / Của bạn. Sweetbox chọn theo cặp.
-      </p>
+      <ul className="seat-legend" aria-label="Chú giải ghế">
+        <li><span className="seat-legend-swatch available" aria-hidden="true" /> Còn trống</li>
+        <li><span className="seat-legend-swatch holding" aria-hidden="true" /> Đang giữ</li>
+        <li><span className="seat-legend-swatch booked" aria-hidden="true" /> Đã bán</li>
+        <li><span className="seat-legend-swatch selected" aria-hidden="true" /> Bạn đã chọn / đang giữ</li>
+      </ul>
+      <div className="seat-type-legend"><span><i className="vip" aria-hidden="true" /> VIP</span><span><i className="sweetbox" aria-hidden="true" /> Sweetbox, chọn theo cặp</span></div>
     </section>
   );
 }

@@ -23,9 +23,9 @@ export function HoldCountdown({
         {String(seconds % 60).padStart(2, "0")}
       </strong>
       {seconds === 0
-        ? " · Hết hạn, vui lòng chọn lại."
+        ? ". Hết hạn, vui lòng chọn lại."
         : seconds <= 60
-          ? " · Sắp hết hạn."
+          ? ". Sắp hết hạn."
           : ""}
       {pos && waiting && !extensionUsed && seconds > 0 && seconds <= 60 && (
         <button disabled={busy} onClick={onExtend}>

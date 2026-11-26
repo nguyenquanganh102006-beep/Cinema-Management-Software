@@ -12,7 +12,7 @@ export function Pagination({
         Trước
       </button>
       <span>
-        Trang {meta.page + 1} / {Math.max(1, meta.totalPages)} ·{" "}
+        Trang {meta.page + 1} / {Math.max(1, meta.totalPages)}.{" "}
         {meta.totalElements} kết quả
       </span>
       <button

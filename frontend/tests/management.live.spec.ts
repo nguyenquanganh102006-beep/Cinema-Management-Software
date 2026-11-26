@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-const base = "http://localhost:8080/api/v1";
+const base = "http://localhost:8081/api/v1";
 const password = process.env.DEMO_PASSWORD;
 async function login(page: Page, username: string, value = password!) {
   await page.getByLabel("Tên đăng nhập hoặc email").fill(username);
@@ -109,10 +109,10 @@ test("live Manager pairs physical Sweetbox seats and changes a quote without cha
   await dialog.getByLabel("Số ghế", { exact: true }).fill("3");
   await dialog.getByLabel("Loại ghế", { exact: true }).selectOption("VIP");
   await dialog.getByRole("button", { name: "Lưu", exact: true }).click();
-  await page.getByRole("button", { name: "Sửa ghế C3 · VIP", exact: true }).click();
+  await page.getByRole("button", { name: "Sửa ghế C3, VIP", exact: true }).click();
   await dialog.getByLabel("Số ghế", { exact: true }).fill("2");
   await dialog.getByRole("button", { name: "Lưu", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Sửa ghế C2 · VIP", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sửa ghế C2, VIP", exact: true })).toBeVisible();
   await page.getByLabel("Ghế trái").selectOption(String(left.id));
   await page.getByLabel("Ghế phải").selectOption(String(left.id));
   await expect(page.getByRole("button", { name: "Ghép Sweetbox", exact: true })).toBeDisabled();
@@ -144,7 +144,7 @@ test("live Manager pairs physical Sweetbox seats and changes a quote without cha
     await page.getByRole("button", { name: "Lưu quy tắc", exact: true }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByLabel("Suất chiếu kiểm giá").selectOption(String(show.id));
-    await page.getByRole("checkbox", { name: "A1 · STANDARD", exact: true }).check();
+    await page.getByRole("checkbox", { name: "A1, STANDARD", exact: true }).check();
     await page.getByRole("button", { name: "Lấy giá từ máy chủ", exact: true }).click();
     const after = await call("/pricing/quote", "POST", { showtimeId: show.id, seatIds: [standard.id] });
     expect(Number(after.ticketTotal) - Number(before.ticketTotal)).toBe(1234);

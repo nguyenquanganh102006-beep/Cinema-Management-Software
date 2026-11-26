@@ -78,7 +78,7 @@ export function useSeatHold(showtimeId: number) {
     }
   }, [active, map?.serverTime, dispatch]);
   async function mutate(action: "hold" | "extend" | "release") {
-    if (submitting.current) return;
+    if (submitting.current) return null;
     submitting.current = true;
     setBusy(true);
     setError("");
@@ -98,6 +98,7 @@ export function useSeatHold(showtimeId: number) {
             : await holdsApi.extend(active!.holdToken, session.accessToken);
         if (current === generation.current)
           dispatch({ type: "HOLD", value: result });
+        return result;
       }
     } catch (e) {
       if (current === generation.current)
@@ -105,6 +106,7 @@ export function useSeatHold(showtimeId: number) {
           (e instanceof Error ? e.message : "Thao tác thất bại") +
             " Làm mới sơ đồ để kiểm tra ghế đã giữ.",
         );
+      return null;
     } finally {
       submitting.current = false;
       setBusy(false);

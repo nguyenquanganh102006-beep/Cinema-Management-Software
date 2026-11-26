@@ -12,4 +12,6 @@ public record PosBookingSummaryResponse(
         String paymentMethod,
         String paymentStatus,
         long ticketCount,
-        String refundStatus) {}
+        String refundStatus,
+        String movieTitle,
+        Instant showtimeStartsAt) {}

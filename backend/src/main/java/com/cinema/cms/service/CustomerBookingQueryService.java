@@ -70,10 +70,18 @@ public class CustomerBookingQueryService {
                                 page,
                                 size,
                                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))));
+        Map<Long, Showtime> showtimeById = found.getContent().isEmpty() ? Map.of()
+                : showtimes.findAllById(found.getContent().stream().map(Booking::getShowtimeId).toList()).stream()
+                        .collect(Collectors.toMap(Showtime::getId, Function.identity()));
+        Map<Long, Movie> movieById = showtimeById.isEmpty() ? Map.of()
+                : movies.findAllById(showtimeById.values().stream().map(Showtime::getMovieId).distinct().toList()).stream()
+                        .collect(Collectors.toMap(Movie::getId, Function.identity()));
         return PageResponse.from(
                 found,
-                booking ->
-                        new MeBookingSummaryResponse(
+                booking -> {
+                    Showtime showtime = showtimeById.get(booking.getShowtimeId());
+                    Movie movie = showtime == null ? null : movieById.get(showtime.getMovieId());
+                    return new MeBookingSummaryResponse(
                                 booking.getId(),
                                 booking.getBookingCode(),
                                 booking.getStatus().name(),
@@ -81,7 +89,10 @@ public class CustomerBookingQueryService {
                                 booking.getTotalAmount(),
                                 booking.getCreatedAt(),
                                 booking.getPaidAt(),
-                                booking.getShowtimeId()));
+                                booking.getShowtimeId(),
+                                movie == null ? (showtime == null ? null : showtime.getMovieTitleSnapshot()) : movie.getTitle(),
+                                showtime == null ? null : showtime.getStartTime());
+                });
     }
 
     @Transactional(readOnly = true)
@@ -92,8 +103,6 @@ public class CustomerBookingQueryService {
         if (!Objects.equals(booking.getUserId(), userId)) throw notFound();
 
         Showtime showtime = showtimes.findById(booking.getShowtimeId()).orElseThrow(CustomerBookingQueryService::notFound);
-        Movie movie = movies.findById(showtime.getMovieId()).orElseThrow(CustomerBookingQueryService::notFound);
-        Auditorium room = auditoriums.findById(showtime.getAuditoriumId()).orElse(null);
 
         List<Ticket> bookingTickets = tickets.findByBookingIdOrderByIdAsc(bookingId);
         Map<Long, ShowtimeSeat> showtimeSeatById =
@@ -175,11 +184,11 @@ public class CustomerBookingQueryService {
                 booking.getPaidAt(),
                 new MeBookingDetailResponse.ShowtimeInfo(
                         showtime.getId(),
-                        movie.getId(),
-                        movie.getTitle(),
-                        movie.getAgeRating(),
+                        showtime.getMovieId(),
+                        showtime.getMovieTitleSnapshot(),
+                        showtime.getAgeRatingSnapshot(),
                         showtime.getAuditoriumId(),
-                        room == null ? null : room.getName(),
+                        showtime.getAuditoriumNameSnapshot(),
                         offset(showtime.getStartTime()),
                         offset(showtime.getEndTime())),
                 ticketLines,

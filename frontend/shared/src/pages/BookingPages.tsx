@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { catalogApi } from "../api/catalog";
 import { holdsApi } from "../api/holds";
 import { bookingsApi } from "../api/bookings";
+import { testPaymentsApi } from "../api/testPayments";
 import { posApi } from "../api/pos";
 import { quote } from "../api/pricing";
 import { useAuth } from "../auth/AuthProvider";
@@ -19,20 +20,88 @@ import { OrderSummary } from "../components/OrderSummary";
 import { HoldCountdown } from "../components/HoldCountdown";
 import { AgeConfirmation } from "../components/AgeConfirmation";
 import { TicketView, Qr } from "../components/TicketView";
+import { DateRail, showtimeDateKey } from "../components/DateRail";
+import { MoviePicker } from "../components/MoviePicker";
 import { CheckoutRecovery } from "./CheckoutRecovery";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { dateTime, money, today } from "../utils/format";
 import type { Booking, Showtime } from "../types";
+
+const apiOrigin = new URL(
+  import.meta.env.VITE_API_URL ?? "http://localhost:8081/api/v1",
+).origin;
+
+function posterUrl(poster?: string) {
+  if (!poster) return undefined;
+  try {
+    const url = new URL(poster, apiOrigin);
+    if (url.pathname.startsWith("/posters/")) return `${apiOrigin}${url.pathname}`;
+    return url.href;
+  } catch {
+    return poster;
+  }
+}
+
+function displayDate(value: string) {
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
+function displayTime(value: string) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+const bookingStatusLabels: Record<string, string> = {
+  PENDING: "Chờ thanh toán",
+  PAID: "Đã thanh toán",
+  CANCELLED: "Đã kết thúc",
+  EXCEPTION_PENDING_DECISION: "Chờ rạp hỗ trợ",
+};
+const paymentMethodLabels: Record<string, string> = {
+  CASH: "Tiền mặt",
+  VIETQR: "VietQR",
+  GATEWAY_ONLINE: "VNPay",
+};
+const refundStatusLabels: Record<string, string> = {
+  NONE: "—",
+  PARTIAL: "Hoàn một phần",
+  FULL: "Đã hoàn",
+};
+
+function bookingStatusLabel(status: string) {
+  return bookingStatusLabels[status] ?? "Đang xử lý";
+}
+
+function paymentMethodLabel(method?: string) {
+  if (!method) return "Chưa thanh toán";
+  return paymentMethodLabels[method] ?? method;
+}
+
+function refundStatusLabel(status?: string) {
+  return refundStatusLabels[status ?? "NONE"] ?? "—";
+}
+
 export function MovieListPage() {
   const { session } = useAuth();
   const [keyword, setKeyword] = useState(""),
     [page, setPage] = useState(0);
   const result = useQuery(`movies:${keyword}:${page}`, (s) =>
-    catalogApi.movies(session.accessToken, { keyword, active: true, page }, s),
+    catalogApi.movies(session.accessToken, { keyword, page }, s),
+  );
+  const schedules = useQuery("movie-list-schedules", (s) =>
+    catalogApi.showtimes(session.accessToken, {}, s),
+  );
+  const upcomingMovieIds = new Set(
+    (schedules.data ?? [])
+      .filter((show) => Date.parse(show.startTime) > Date.now())
+      .map((show) => show.movieId),
   );
   return (
     <section>
-      <h2>Khám phá phim</h2>
       <label>
         Tìm phim
         <input
@@ -48,24 +117,43 @@ export function MovieListPage() {
         empty={result.data?.data.length === 0}
         retry={result.refetch}
       />
-      <div className="cards">
-        {result.data?.data.map((movie) => (
-          <article className="card" key={movie.id}>
-            {movie.poster && (
-              <img className="poster" src={movie.poster} alt={`Áp phích ${movie.title}`} onError={(e) => { e.currentTarget.style.display = "none"; }} />
-            )}
-            <div className="poster-fallback" aria-hidden="true">CINEMA · {movie.ageRating}</div>
-            <h3>
-              <Link to={`/movies/${movie.id}`}>{movie.title}</Link>
-            </h3>
-            <p>
-              {movie.ageRating} · {movie.durationMinutes} phút · {movie.genre}
-            </p>
-            <p>{movie.description}</p>
-          </article>
-        ))}
-      </div>
-      {result.data && <Pagination meta={result.data.meta} onPage={setPage} />}
+      {Boolean(result.data?.data.length) && (
+        <div className="cards movie-grid">
+          {result.data?.data.map((movie) => {
+            const metadata = [movie.ageRating, `${movie.durationMinutes} phút`, movie.genre]
+              .filter(Boolean)
+              .join(", ");
+            const status = !movie.active
+              ? { label: "Hết chiếu", tone: "ended" }
+              : movie.releaseDate > today()
+                ? { label: "Sắp chiếu", tone: "upcoming" }
+                : schedules.data
+                  ? upcomingMovieIds.has(movie.id)
+                    ? { label: "Đang chiếu", tone: "showing" }
+                    : { label: "Hết chiếu", tone: "ended" }
+                  : { label: "Đang cập nhật", tone: "loading" };
+            return (
+              <Link className="movie-card-link" to={`/movies/${movie.id}`} key={movie.id}>
+                <article className="card movie-card">
+                  <div className="movie-poster-frame">
+                    {movie.poster && (
+                      <img className="poster" src={posterUrl(movie.poster)} alt={`Áp phích ${movie.title}`} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                    )}
+                    <div className="poster-fallback" aria-hidden="true">CINEMA</div>
+                  </div>
+                  <span className={`movie-status ${status.tone}`}>{status.label}</span>
+                  <h3>{movie.title}</h3>
+                  {metadata && <p className="movie-card-meta">{metadata}</p>}
+                  {movie.description && <p className="movie-card-description">{movie.description}</p>}
+                </article>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+      {result.data && result.data.meta.totalElements > 0 && (
+        <Pagination meta={result.data.meta} onPage={setPage} />
+      )}
     </section>
   );
 }
@@ -76,47 +164,80 @@ export function MovieDetailPage() {
   const movie = useQuery("movie:" + id, (s) =>
     catalogApi.movie(id, session.accessToken, s),
   );
+  const calendar = useQuery(`movie-calendar:${id}`, (s) =>
+    catalogApi.showtimes(session.accessToken, { movieId: id }, s),
+  );
   const shows = useQuery(`movie-shows:${id}:${date}`, (s) =>
     catalogApi.showtimes(session.accessToken, { movieId: id, date }, s),
   );
+  const showtimeCounts = (calendar.data ?? []).reduce<Record<string, number>>((counts, show) => {
+    if (Date.parse(show.startTime) > Date.now()) {
+      const key = showtimeDateKey(show.startTime);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, {});
+  const details = movie.data;
+  const metadata = details
+    ? [details.ageRating, `${details.durationMinutes} phút`, details.genre, details.director, details.language, details.country]
+        .filter(Boolean)
+        .join(", ")
+    : "";
   return (
     <section>
       <Feedback {...movie} retry={movie.refetch} />
       {movie.data && (
-        <>
-          <h2>{movie.data.title}</h2>
-          <p>{movie.data.description}</p>
-          <p>
-            {movie.data.ageRating} · {movie.data.durationMinutes} phút ·{" "}
-            {movie.data.director} · {movie.data.language}
-          </p>
-          {movie.data.trailer && (
-            <a href={movie.data.trailer} target="_blank" rel="noreferrer">
-              Xem trailer
-            </a>
+        <div className="movie-detail-hero">
+          {movie.data.poster && (
+            <>
+              <img
+                className="movie-detail-poster"
+                src={posterUrl(movie.data.poster)}
+                alt={`Áp phích ${movie.data.title}`}
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+              />
+              <div className="movie-detail-poster-fallback" aria-hidden="true">
+                CINEMA
+              </div>
+            </>
           )}
-        </>
+          <div className="movie-detail-copy">
+            <h2>{movie.data.title}</h2>
+            {movie.data.description && <p>{movie.data.description}</p>}
+            {metadata && <p>{metadata}</p>}
+            <p>Khởi chiếu: {displayDate(movie.data.releaseDate)}</p>
+            {movie.data.trailer && (
+              <a href={movie.data.trailer} target="_blank" rel="noreferrer">
+                Xem trailer
+              </a>
+            )}
+          </div>
+        </div>
       )}
-      <label>
-        Ngày chiếu
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
-      </label>
+      {movie.data?.active && <DateRail value={date} onChange={setDate} showtimeCounts={showtimeCounts} />}
       <Feedback
         {...shows}
         empty={shows.data?.length === 0}
+        emptyTitle="Chưa có suất chiếu"
+        emptyMessage={movie.data && !movie.data.active
+          ? "Phim đã hết chiếu và hiện không còn suất bán vé."
+          : movie.data && date < movie.data.releaseDate
+            ? `Phim dự kiến khởi chiếu ngày ${displayDate(movie.data.releaseDate)}. Chọn ngày đó hoặc một ngày sau để xem lịch chiếu.`
+            : `Hiện chưa có suất chiếu ngày ${displayDate(date)}. Hãy chọn ngày khác để xem lịch.`}
         retry={shows.refetch}
       />
-      {shows.data?.map((show) => (
-        <ShowtimeCard key={show.id} show={show} />
-      ))}
+      {Boolean(shows.data?.length) && <h3>Suất chiếu</h3>}
+      {Boolean(shows.data?.length) && (
+        <div className="cards">
+          {shows.data?.map((show) => (
+            <ShowtimeCard key={show.id} show={show} compact />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
-function ShowtimeCard({ show }: { show: Showtime }) {
+function ShowtimeCard({ show, compact = false }: { show: Showtime; compact?: boolean }) {
   const { session } = useAuth();
   const { state, dispatch } = useBookingFlow();
   const [confirm, setConfirm] = useState(false);
@@ -124,6 +245,9 @@ function ShowtimeCard({ show }: { show: Showtime }) {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const pos = session.user.role === "STAFF";
+  const auditoriumType = show.auditoriumType === "STANDARD_2D"
+    ? "2D"
+    : show.auditoriumType;
   async function select() {
     setBusy(true);
     try {
@@ -141,16 +265,15 @@ function ShowtimeCard({ show }: { show: Showtime }) {
     }
   }
   return (
-    <article className="card">
-      <h3>
-        {show.movieTitle} · {show.ageRating}
-      </h3>
-      <p>
-        {show.auditoriumName} · {show.auditoriumType}
-      </p>
-      <p>
-        {dateTime(show.startTime)} → {dateTime(show.endTime)}
-      </p>
+    <article className="card showtime-card">
+      <h3>{compact ? displayTime(show.startTime) : show.movieTitle}</h3>
+      <dl className="showtime-facts">
+        {!compact && <div><dt>Giờ chiếu</dt><dd>{dateTime(show.startTime)}</dd></div>}
+        <div><dt>Phòng chiếu</dt><dd>{show.auditoriumName}</dd></div>
+        <div><dt>Định dạng</dt><dd>{auditoriumType}</dd></div>
+        <div><dt>Độ tuổi</dt><dd>{show.ageRating}</dd></div>
+        <div><dt>Kết thúc</dt><dd>{dateTime(show.endTime)}</dd></div>
+      </dl>
       <button disabled={Date.parse(show.startTime) <= Date.now()} onClick={() => (state.hold ? setConfirm(true) : void select())}>
         Chọn suất
       </button>
@@ -176,47 +299,53 @@ export function ShowtimeSearchPage() {
   const movies = useQuery("pos-movies", (s) =>
     catalogApi.movieOptions(session.accessToken, s),
   );
-  const result = useQuery(`shows:${date}:${movieId}`, (s) =>
-    catalogApi.showtimes(
-      session.accessToken,
-      { date, movieId: movieId ? Number(movieId) : undefined },
-      s,
-    ),
+  const calendar = useQuery(`pos-movie-calendar:${movieId}`, (s) =>
+    movieId
+      ? catalogApi.showtimes(session.accessToken, { movieId: Number(movieId) }, s)
+      : Promise.resolve([]),
   );
+  const result = useQuery(`shows:${date}:${movieId}`, (s) =>
+    movieId
+      ? catalogApi.showtimes(
+          session.accessToken,
+          { date, movieId: Number(movieId) },
+          s,
+        )
+      : Promise.resolve([]),
+  );
+  const showtimeCounts = (calendar.data ?? []).reduce<Record<string, number>>((counts, show) => {
+    if (Date.parse(show.startTime) > Date.now()) {
+      const key = showtimeDateKey(show.startTime);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, {});
   return (
     <section>
-      <h2>Chọn phim và suất</h2>
-      <div className="toolbar">
-        <label>
-          Ngày chiếu
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
+      <h2>Chọn phim và suất chiếu</h2>
+      <p className="staff-flow-hint">Chọn phim, chọn ngày có suất rồi chọn giờ chiếu.</p>
+      <Feedback {...movies} retry={movies.refetch} />
+      <MoviePicker movies={movies.data ?? []} value={movieId} onChange={setMovieId} />
+      {!movieId ? (
+        <p className="empty-state">Chọn một phim ở trên để tiếp tục đặt vé.</p>
+      ) : (
+        <>
+          <DateRail value={date} onChange={setDate} showtimeCounts={showtimeCounts} />
+          <h3 className="staff-showtime-heading">Suất chiếu trong ngày đã chọn</h3>
+          <Feedback
+            {...result}
+            empty={result.data?.length === 0}
+            emptyTitle="Chưa có suất chiếu"
+            emptyMessage="Phim này chưa có suất chiếu trong ngày đã chọn. Hãy thử ngày khác."
+            retry={result.refetch}
           />
-        </label>
-        <label>
-          Phim
-          <select value={movieId} onChange={(e) => setMovieId(e.target.value)}>
-            <option value="">Tất cả</option>
-            {movies.data?.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.title}
-              </option>
+          <div className="cards">
+            {result.data?.map((show) => (
+              <ShowtimeCard key={show.id} show={show} />
             ))}
-          </select>
-        </label>
-      </div>
-      <Feedback
-        {...result}
-        empty={result.data?.length === 0}
-        retry={result.refetch}
-      />
-      <div className="cards">
-        {result.data?.map((show) => (
-          <ShowtimeCard key={show.id} show={show} />
-        ))}
-      </div>
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -232,14 +361,21 @@ export function BookingPage() {
   );
   const seatHold = useSeatHold(id);
   const [confirm, setConfirm] = useState(false);
+  const [bookingStep, setBookingStep] = useState<1 | 2>(1);
   const [quoteError, setQuoteError] = useState("");
   const [quoteVersion, setQuoteVersion] = useState(0);
   const pos = session.user.role === "STAFF";
   useEffect(() => {
     if (show.data) dispatch({ type: "SHOWTIME", value: show.data });
   }, [show.data, dispatch]);
+  useEffect(() => {
+    setBookingStep(seatHold.hold ? 2 : 1);
+  }, [seatHold.hold?.holdToken]);
   const targetSeats = seatHold.hold?.seatIds ?? state.selected;
   const seatIdsKey = targetSeats.join(",");
+  const seatLabels = new Map<number, string>(
+    (seatHold.map?.seats ?? []).map((seat) => [seat.seatId, `${seat.row}${seat.number}`] as const),
+  );
   const estimatedTotal = (state.quote?.total ?? 0) + state.cart.reduce((sum, line) =>
     sum + (items.data?.find((item) => item.id === line.itemId)?.price ?? 0) * line.quantity, 0);
   useEffect(() => {
@@ -262,9 +398,15 @@ export function BookingPage() {
   ]);
   return (
     <section className="booking-page">
-      <ol className="booking-steps" aria-label="Tiến trình đặt vé"><li>1. Chọn suất</li><li aria-current="step">2. Ghế và F&B</li><li>3. Thanh toán</li><li>4. Nhận vé</li></ol>
+      <ol className="booking-steps" aria-label="Tiến trình đặt vé">
+        <li>1. Chọn suất</li>
+        <li aria-current={bookingStep === 1 ? "step" : undefined}>2. Chọn ghế</li>
+        <li aria-current={bookingStep === 2 ? "step" : undefined}>3. Bắp nước</li>
+        <li>4. Thanh toán</li>
+        <li>5. Nhận vé</li>
+      </ol>
       <h2>
-        {show.data?.movieTitle ?? "Chọn ghế"} · {show.data?.ageRating}
+        {show.data?.movieTitle ?? "Chọn ghế"}, {show.data?.ageRating}
       </h2>
       <Feedback {...show} retry={show.refetch} />
       <Feedback
@@ -287,7 +429,7 @@ export function BookingPage() {
       />
       <div className="booking-grid">
         <div>
-          {seatHold.map && (
+          {bookingStep === 1 && seatHold.map && (
             <SeatMap
               seats={seatHold.map.seats}
               selected={state.selected}
@@ -295,8 +437,8 @@ export function BookingPage() {
               onSelect={(value) => dispatch({ type: "SELECT", value })}
             />
           )}
-          <Feedback {...items} retry={items.refetch} />
-          {items.data && (
+          {bookingStep === 2 && <Feedback {...items} retry={items.refetch} />}
+          {bookingStep === 2 && items.data && (
             <ConcessionPicker
               items={items.data}
               cart={state.cart}
@@ -308,33 +450,44 @@ export function BookingPage() {
         <aside>
           <OrderSummary
             quote={state.quote}
+            seatLabels={seatLabels}
             items={items.data}
             cart={state.cart}
           />
           <div className="booking-actions">
-          <p className="booking-action-hint">{targetSeats.length} ghế · {state.quote ? `Tạm tính ${money(estimatedTotal)}` : "Chọn ghế để xem giá"}</p>
-          {seatHold.hold ? (
+          <p className="booking-action-hint">{targetSeats.length} ghế, {state.quote ? `Tạm tính ${money(estimatedTotal)}` : "Chọn ghế để xem giá"}</p>
+          {bookingStep === 1 && seatHold.hold ? (
             <>
-              <button disabled={seatHold.busy || !!state.creation} onClick={() => setConfirm(true)}>
-                Đổi ghế
-              </button>
-              {seatHold.seconds > 0 && (
-                <Link
-                  className="button primary"
-                  to={pos ? "/pos/checkout" : "/checkout"}
-                >
-                  Tiếp tục thanh toán
-                </Link>
-              )}
+              <p role="status">Ghế đã được giữ. Tiếp tục chọn bắp nước để hoàn tất đơn.</p>
+              <button className="primary" onClick={() => setBookingStep(2)}>Tiếp tục chọn bắp nước</button>
             </>
-          ) : (
+          ) : bookingStep === 1 ? (
             <button
               className="primary"
-              disabled={seatHold.busy || !state.selected.length || !!state.creation}
-              onClick={seatHold.create}
+              disabled={seatHold.busy || !state.selected.length || !state.quote || !!state.creation}
+              onClick={async () => {
+                const held = await seatHold.create();
+                if (held) setBookingStep(2);
+              }}
             >
-              Giữ các ghế đã chọn
+              Tiếp tục chọn bắp nước
             </button>
+          ) : (
+            <>
+              <button disabled={seatHold.busy || !!state.creation} onClick={async () => {
+                await seatHold.release();
+                setBookingStep(1);
+              }}>
+                Quay lại chọn ghế
+              </button>
+              {seatHold.seconds > 0 ? (
+                <Link className="button primary" to={pos ? "/pos/checkout" : "/checkout"}>
+                  Tiếp tục thanh toán
+                </Link>
+              ) : (
+                <button className="primary" disabled>Phiên giữ ghế đã hết hạn</button>
+              )}
+            </>
           )}
           </div>
         </aside>
@@ -384,6 +537,11 @@ function CheckoutFlow() {
   const canPay = state.showtime!.ageRating === "P" || age;
   const concessions = useQuery("checkout-concessions", (s) =>
     catalogApi.concessions(session.accessToken, s),
+  );
+  const testPaymentMode = useQuery(`test-payment-mode:${pos}`, (s) =>
+    !pos && import.meta.env.DEV && import.meta.env.VITE_USE_MOCKS !== "true"
+      ? testPaymentsApi.mode(session.accessToken, s)
+      : Promise.resolve({ enabled: false }),
   );
   async function reload() {
     if (!booking) return;
@@ -512,10 +670,11 @@ function CheckoutFlow() {
     );
   }
   const pending = !booking || booking.status === "PENDING";
+  const receivingTicket = booking?.status === "PAID" && !pos;
   return (
     <section>
-      <ol className="booking-steps" aria-label="Tiến trình đặt vé"><li>1. Chọn suất</li><li>2. Ghế và F&B</li><li aria-current="step">3. Thanh toán</li><li>4. Nhận vé</li></ol>
-      <h2>Thanh toán {pos ? "tại quầy" : "Online"}</h2>
+      <ol className="booking-steps" aria-label="Tiến trình đặt vé"><li>1. Chọn suất</li><li>2. Chọn ghế</li><li>3. Bắp nước</li><li aria-current={!receivingTicket ? "step" : undefined}>4. Thanh toán</li><li aria-current={receivingTicket ? "step" : undefined}>5. Nhận vé</li></ol>
+      <h2>{receivingTicket ? "Nhận vé điện tử" : `Thanh toán ${pos ? "tại quầy" : "trực tuyến"}`}</h2>
       <Feedback error={error || hold.error} />
       {(hold.hold || booking?.holdUntil) && pending && (
         <HoldCountdown
@@ -527,9 +686,9 @@ function CheckoutFlow() {
           onExtend={hold.extend}
         />
       )}
-      <OrderSummary booking={booking} quote={state.quote} cart={state.cart} items={concessions.data} />
+      {!receivingTicket && <OrderSummary booking={booking} quote={state.quote} cart={state.cart} items={concessions.data} />}
       {!booking && <Link to={pos ? `/pos/showtimes/${state.showtime!.id}` : `/showtimes/${state.showtime!.id}/book`}>Quay lại chọn ghế và F&B</Link>}
-      {booking?.status === "PENDING" && <p>Đơn đã được tạo. Bạn có thể thanh toán hoặc đọc lại trạng thái; ghế sẽ tự giải phóng nếu hết hạn.</p>}
+      {booking?.status === "PENDING" && <p>Đơn đã tạo. Hoàn tất thanh toán trước khi thời gian giữ ghế kết thúc.</p>}
       {pending && (
         <AgeConfirmation
           rating={state.showtime!.ageRating}
@@ -583,16 +742,19 @@ function CheckoutFlow() {
             })
           }
         >
-          {state.creation ? "Đọc lại kết quả tạo đơn" : "Tạo đơn · lấy tổng thanh toán"}
+          {state.creation ? "Kiểm tra kết quả tạo đơn" : "Tạo đơn và xem tổng"}
         </button>
       ) : (
         <>
           {booking.status === "PAID" ? (
-            <TicketView booking={booking} />
+            <>
+              <p className="receipt-success">Thanh toán đã hoàn tất. Vé điện tử đã sẵn sàng để quét tại rạp.</p>
+              <TicketView booking={booking} />
+              {!pos && <div className="receipt-actions"><Link className="button primary" to="/bookings">Xem lịch sử đặt vé</Link><Link className="button" to="/movies">Đặt vé khác</Link></div>}
+            </>
           ) : booking.status === "EXCEPTION_PENDING_DECISION" ? (
             <p role="alert">
-              Thanh toán cần xử lý thủ công: {booking.exceptionReason}. Liên hệ
-              quầy vé.
+              Hệ thống đã ghi nhận thanh toán nhưng chưa phát hành vé. Đơn đã được chuyển tới nhân viên hỗ trợ; vui lòng liên hệ quầy vé.
             </p>
           ) : booking.status === "CANCELLED" ? (
             <p role="status">Đơn đã đóng. Chọn lại suất chiếu để đặt vé.</p>
@@ -635,11 +797,11 @@ function CheckoutFlow() {
                   </button>
                   {booking.payment?.qrPayload && (
                     <>
-                      <p>
-                        {booking.payment.bankName} ·{" "}
-                        {booking.payment.bankAccount} ·{" "}
-                        {booking.payment.transferContent}
-                      </p>
+                      <dl className="payment-transfer-info">
+                        <div><dt>Ngân hàng</dt><dd>{booking.payment.bankName}</dd></div>
+                        <div><dt>Tài khoản nhận</dt><dd>{booking.payment.bankAccount}</dd></div>
+                        <div><dt>Nội dung chuyển khoản</dt><dd>{booking.payment.transferContent}</dd></div>
+                      </dl>
                       <Qr payload={booking.payment.qrPayload} />
 
                       <label className="checkbox">
@@ -679,12 +841,26 @@ function CheckoutFlow() {
                       Mở VNPay
                     </a>
                   )}
-                  <p>Giữ tab này mở. Kết quả chỉ được xác nhận từ máy chủ.</p>
+                  {testPaymentMode.data?.enabled && (
+                    <div className="test-payment-box">
+                      <p>Chế độ thử nghiệm trên máy này. Nút dưới đây chỉ mô phỏng kết quả thanh toán để kiểm tra phát hành vé.</p>
+                      <button
+                        disabled={busy || uncertain || !canPay || seconds === 0}
+                        onClick={() => action(async () => {
+                          await testPaymentsApi.complete(booking.bookingId, session.accessToken);
+                          await reload();
+                        }, true)}
+                      >
+                        Mô phỏng thanh toán thành công
+                      </button>
+                    </div>
+                  )}
+                    <p>Giữ trang này mở. Vé sẽ hiện sau khi VNPay xác nhận thanh toán.</p>
                 </>
               )}
               <div className="toolbar">
                 <button disabled={busy} onClick={() => action(reload)}>
-                  Đọc lại trạng thái đơn
+                  Cập nhật trạng thái
                 </button>
               </div>
             </>
@@ -759,38 +935,49 @@ export function BookingHistoryPage() {
       <Feedback
         {...result}
         empty={result.data?.data.length === 0}
+        emptyTitle={pos ? undefined : "Chưa có đơn đặt vé"}
+        emptyMessage={pos ? undefined : "Đơn và vé của bạn sẽ xuất hiện ở đây sau khi đặt thành công."}
         retry={result.refetch}
       />
-      <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Mã đơn</th>
-              <th>Trạng thái</th>
-              <th>Thanh toán</th>
-              <th>Tổng</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.data?.data.map((b) => (
-              <tr key={b.bookingId}>
-                <td>
-                  <Link
-                    to={`${pos ? "/transactions" : "/bookings"}/${b.bookingId}`}
-                  >
-                    {b.bookingCode}
-                  </Link>
-                </td>
-                <td>{b.status}</td>
-                <td>{b.payment?.paymentMethod ?? "Chưa thanh toán"}</td>
-                <td>{money(b.totalAmount)}</td>
-                <td>{b.refundStatus ?? "—"}</td>
+      {Boolean(result.data?.data.length) && (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Mã đơn</th>
+                <th>Phim</th>
+                <th>Suất chiếu</th>
+                <th>Trạng thái</th>
+                <th>Thanh toán</th>
+                <th>Tổng</th>
+                <th>Hoàn tiền</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {result.data && <Pagination meta={result.data.meta} onPage={setPage} />}
+            </thead>
+            <tbody>
+              {result.data?.data.map((b) => (
+                <tr key={b.bookingId}>
+                  <td>
+                    <Link
+                      to={`${pos ? "/transactions" : "/bookings"}/${b.bookingId}`}
+                    >
+                      {b.bookingCode}
+                    </Link>
+                  </td>
+                  <td>{b.showtime.movieTitle || "—"}</td>
+                  <td>{b.showtime.startTime ? dateTime(b.showtime.startTime) : "—"}</td>
+                  <td>{bookingStatusLabel(b.status)}</td>
+                  <td>{paymentMethodLabel(b.payment?.paymentMethod)}</td>
+                  <td>{money(b.totalAmount)}</td>
+                  <td>{refundStatusLabel(b.refundStatus)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {result.data && result.data.meta.totalElements > 0 && (
+        <Pagination meta={result.data.meta} onPage={setPage} />
+      )}
     </section>
   );
 }
@@ -803,12 +990,13 @@ export function BookingDetailPage() {
   );
   return (
     <section>
-      <h2>Chi tiết giao dịch</h2>
       <Feedback {...result} retry={result.refetch} />
       {result.data && (
         <>
           <OrderSummary booking={result.data} />
-          {result.data.refundStatus && <p>Hoàn vé: {result.data.refundStatus}</p>}
+          {result.data.refundStatus && result.data.refundStatus !== "NONE" && (
+            <p>Hoàn tiền: {refundStatusLabel(result.data.refundStatus)}</p>
+          )}
           {result.data.status === "PENDING" && (
             <p>
               Đang chờ thanh toán. <Link to={`${pos ? "/pos/checkout" : "/checkout"}?booking=${id}`}>Tiếp tục thanh toán</Link>
@@ -816,14 +1004,14 @@ export function BookingDetailPage() {
           )}
           {result.data.status === "EXCEPTION_PENDING_DECISION" && (
             <p role="alert">
-              Cần xử lý thủ công: {result.data.exceptionReason}
+              Thanh toán đã được ghi nhận nhưng vé chưa được phát hành. Đơn cần Quản lý rạp và nhân viên hỗ trợ xử lý tại quầy.
             </p>
           )}
           <TicketView booking={result.data} />
           {pos && <Link to={`/refunds?bookingCode=${encodeURIComponent(result.data.bookingCode)}`}>Yêu cầu hoàn vé tại quầy</Link>}
           {result.data.refunds?.map((r) => (
             <p key={r.refundId}>
-              Đã hoàn {money(r.refundAmount)} · Vé {r.ticketIds.join(", ")}
+              Đã hoàn {money(r.refundAmount)} cho vé {r.ticketIds.join(", ")}
             </p>
           ))}
         </>

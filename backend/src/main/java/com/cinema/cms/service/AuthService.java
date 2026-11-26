@@ -4,7 +4,10 @@ import com.cinema.cms.dto.*;
 import com.cinema.cms.entity.*;
 import com.cinema.cms.repository.UserRepository;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
+import java.util.HexFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,9 +21,10 @@ public class AuthService {
     private final PasswordEncoder passwords;
     private final JwtService jwt;
     private final TokenRevocationService revocations;
+    private final AuditEventService auditEvents;
     private final String dummyHash;
-    public AuthService(UserRepository users, PasswordEncoder passwords, JwtService jwt, TokenRevocationService revocations) {
-        this.users = users; this.passwords = passwords; this.jwt = jwt; this.revocations = revocations;
+    public AuthService(UserRepository users, PasswordEncoder passwords, JwtService jwt, TokenRevocationService revocations, AuditEventService auditEvents) {
+        this.users = users; this.passwords = passwords; this.jwt = jwt; this.revocations = revocations; this.auditEvents = auditEvents;
         this.dummyHash = passwords.encode(java.util.UUID.randomUUID().toString());
     }
     @Transactional
@@ -37,11 +41,18 @@ public class AuthService {
         boolean matched = passwords.matches(lengthOk ? req.password() : "invalid-long-input", user == null ? dummyHash : user.getPasswordHash());
         if (user == null || !lengthOk || !matched) {
             log.info("Authentication rejected: invalid credentials");
+            auditEvents.recordIndependent(null, "AUTH_LOGIN", "REJECTED", "AUTHENTICATION",
+                    user == null ? null : user.getId(),
+                    "reason=INVALID_CREDENTIALS; identitySha256=" + sha256(identity));
             throw new ApiException(401,"AUTH_INVALID_CREDENTIALS","Tên đăng nhập hoặc mật khẩu không đúng");
         }
         if (user.getStatus() != AccountStatus.ACTIVE) {
+            auditEvents.recordIndependent(user.getId(), "AUTH_LOGIN", "REJECTED", "USER", user.getId(),
+                    "reason=ACCOUNT_" + user.getStatus().name());
             throw new ApiException(401,"ACCOUNT_" + user.getStatus().name(),"Tài khoản đã bị khóa hoặc ngừng hoạt động");
         }
+        auditEvents.recordIndependent(user.getId(), "AUTH_LOGIN", "SUCCESS", "USER", user.getId(),
+                "role=" + user.getRole().name());
         return new LoginResponse(jwt.issue(user), jwt.ttlSeconds(), UserResponse.from(user));
     }
     @Transactional(readOnly = true)
@@ -51,5 +62,12 @@ public class AuthService {
     public void logout(SessionPrincipal principal) { revocations.revoke(principal.tokenId(), principal.expiresAt()); }
     public static void checkPasswordLength(String password) {
         if (password.getBytes(StandardCharsets.UTF_8).length > 72) throw new ApiException(400,"VALIDATION_ERROR","Mật khẩu không được vượt quá 72 byte UTF-8");
+    }
+    private static String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
     }
 }

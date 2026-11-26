@@ -1,148 +1,376 @@
 # Cinema Management Software
 
-Hệ thống quản lý và đặt vé rạp chiếu phim: Spring Boot + PostgreSQL, ba giao diện React cho Manager, Staff và Customer.
+Hệ thống quản lý rạp chiếu phim gồm ba cổng web cho khách hàng, nhân viên và quản lý. Backend Spring Boot cung cấp REST API; PostgreSQL lưu dữ liệu nghiệp vụ; Flyway quản lý thay đổi schema.
 
-Foundation có đăng ký Customer, login bằng username/email, JWT/RBAC, logout thu hồi token, Flyway, Swagger và giao diện auth/layout. Backend đã có API Master Data (B), Showtime (C), Seat Holding (D), Checkout/Payment/Ticket (E) và Refund/Reports (F). Frontend đã có các luồng nghiệp vụ trên ba portal; nghiệm thu G5 đầy đủ vẫn còn các giới hạn được ghi trong tài liệu kiểm thử.
+README này hướng dẫn cấu trúc mã nguồn, chạy hệ thống local, cấu hình thanh toán, chạy build/test và tìm tài liệu nghiệp vụ.
 
-## Công cụ
+## Mục lục
 
-- JDK 21 và JAVA_HOME.
-- Node.js 22.12+; npm 11.10.1 (npm 10 gặp lỗi resolve optional peers với dependency hiện tại).
-- Docker Compose hoặc PostgreSQL 17/18 với database mới riêng.
-- Maven 3.9.12 được wrapper tải tự động.
+- [Chức năng](#chức-năng)
+- [Công nghệ và cấu trúc thư mục](#công-nghệ-và-cấu-trúc-thư-mục)
+- [Yêu cầu môi trường](#yêu-cầu-môi-trường)
+- [Chạy trên Windows](#chạy-trên-windows)
+- [Chạy trên Linux và macOS](#chạy-trên-linux-và-macos)
+- [Tài khoản và dữ liệu demo](#tài-khoản-và-dữ-liệu-demo)
+- [Cấu hình](#cấu-hình)
+- [Thanh toán VNPay](#thanh-toán-vnpay)
+- [Build và kiểm thử](#build-và-kiểm-thử)
+- [Tài liệu dự án](#tài-liệu-dự-án)
+- [Xử lý lỗi thường gặp](#xử-lý-lỗi-thường-gặp)
 
-## Chạy trên Windows PowerShell
+## Chức năng
 
-Từ thư mục gốc:
+### Customer — cổng khách hàng
+
+- Tìm phim, xem áp phích và trạng thái đang chiếu, sắp chiếu hoặc hết chiếu.
+- Chọn ngày, suất chiếu, ghế và bắp nước; kiểm tra giá do server tính.
+- Thanh toán trực tuyến qua VNPay sandbox, xem vé QR và lịch sử đặt vé.
+
+### Staff — cổng nhân viên
+
+- Chọn phim và suất, bán vé tại quầy bằng tiền mặt hoặc VietQR.
+- Tra cứu đơn, soát vé tại cổng và xử lý yêu cầu hoàn vé theo quy trình có quản lý xác nhận.
+
+### Manager — cổng quản lý
+
+- Quản lý phim, phòng và sơ đồ ghế, lịch chiếu, bảng giá, nhân viên, F&B và tồn kho.
+- Xem doanh thu, hoàn vé, giao dịch theo thời gian, tình trạng ghế và các đơn thanh toán cần xử lý.
+
+Các cổng dùng chung giao diện và API client trong workspace `frontend/shared`. Quyền được kiểm tra tại backend; ẩn nút trong giao diện không thay thế kiểm tra phân quyền ở API.
+
+## Công nghệ và cấu trúc thư mục
+
+- **Backend:** Java 21, Spring Boot 3, Spring Security, Spring Data JPA, Flyway, Maven Wrapper.
+- **Database:** PostgreSQL 18 qua Docker Compose; PostgreSQL 17/18 riêng cũng được hỗ trợ.
+- **Frontend:** React 19, TypeScript, Vite, npm workspaces, Vitest và Playwright.
+- **Thanh toán:** VNPay sandbox; VietQR tại quầy được tạo từ cấu hình ngân hàng của rạp.
+
+```text
+.
+├── backend/
+│   ├── src/main/java/com/cinema/cms/
+│   │   ├── controller/       # REST endpoints
+│   │   ├── dto/              # request/response API
+│   │   ├── entity/           # mô hình dữ liệu
+│   │   ├── repository/       # truy vấn PostgreSQL
+│   │   └── service/          # nghiệp vụ và kiểm tra invariant
+│   ├── src/main/resources/
+│   │   ├── db/migration/     # migration Flyway V1...
+│   │   └── static/           # poster phim và ảnh F&B local
+│   └── src/test/             # kiểm thử backend
+├── frontend/
+│   ├── manager/              # Vite app :3001
+│   ├── staff/                # Vite app :3002
+│   ├── customer/             # Vite app :3003
+│   ├── shared/src/           # component, API, workflow dùng chung
+│   └── tests/                # mock và live browser tests
+├── docs/
+│   ├── api/                  # API contract theo nghiệp vụ
+│   ├── architecture/         # kiến trúc và kế hoạch
+│   ├── code-walkthrough/     # giải thích luồng code
+│   ├── database/             # schema và quy tắc dữ liệu
+│   ├── decisions/            # quyết định kỹ thuật
+│   ├── testing/              # cách chạy và bằng chứng nghiệm thu
+│   └── ui-ux/                # contract giao diện và nguồn ảnh
+├── scripts/
+│   ├── setup/                # tạo/load cấu hình và chạy backend
+│   └── testing/              # tiện ích dữ liệu và kiểm tra
+├── compose.yaml
+└── .env.example              # mẫu cấu hình, không chứa credential thật
+```
+
+Không commit thư mục sinh ra như `node_modules/`, `target/`, `dist/`, báo cáo Playwright hay file `.env`. Ảnh trong `backend/src/main/resources/static/` là asset runtime được phục vụ bởi backend; không xóa chúng như build output.
+
+## Yêu cầu môi trường
+
+- Git.
+- JDK 21; `JAVA_HOME` phải trỏ tới JDK có `bin\javac.exe`.
+- Node.js 22.12 trở lên và npm 11.10.1.
+- Docker Desktop với Docker Compose, hoặc PostgreSQL 17/18 và một database riêng, rỗng.
+- Maven không cần cài riêng; Maven Wrapper nằm trong `backend/`.
+
+Kiểm tra nhanh:
+
+```powershell
+java -version
+node --version
+npm --version
+docker compose version
+```
+
+## Chạy trên Windows
+
+Mở PowerShell tại thư mục gốc repository.
+
+### 1. Tạo cấu hình local một lần
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\setup\Initialize-LocalEnvironment.ps1
+```
+
+Lệnh tạo `.env` với JWT secret, mật khẩu database và mật khẩu demo ngẫu nhiên. Mở `.env` để lấy `DEMO_PASSWORD` khi đăng nhập. `.env` đã được Git ignore; không gửi file này hoặc các secret thanh toán lên repository.
+
+Nếu `.env` đã tồn tại, script sẽ từ chối ghi đè. Giữ file đó và chỉnh các biến cần thiết trực tiếp.
+
+### 2. Khởi động PostgreSQL
+
+```powershell
 docker compose up -d --wait
+```
+
+Compose tạo container `cinema-management-software-postgres-1`, lắng nghe local ở cổng `5433`, và lưu dữ liệu trong Docker volume `cinema_postgres`.
+
+### 3. Khởi động backend
+
+Mở terminal riêng và chạy từ thư mục gốc:
+
+```powershell
 powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\setup\Start-Backend.ps1
 ```
 
-Script tạo `.env` với credential ngẫu nhiên; mở file để xem DEMO_PASSWORD, không commit. PostgreSQL Compose dùng localhost:5433 để tránh đụng PostgreSQL có sẵn ở 5432. Backend: http://localhost:8080; Swagger: http://localhost:8080/swagger-ui/index.html.
+Backend chạy ở `http://localhost:8081`; Swagger UI ở `http://localhost:8081/swagger-ui/index.html`. Giữ terminal này mở khi dùng ứng dụng.
 
-Nếu dùng PostgreSQL cài sẵn, tự tạo database rỗng riêng và sửa DB_URL/DB_USERNAME/DB_PASSWORD trong `.env`; bỏ bước Docker. Không trỏ vào database có dữ liệu đang dùng.
+### 4. Cài và khởi động ba frontend
 
-Trong terminal khác:
+Mở terminal khác:
 
 ```powershell
+cd frontend
+npm ci
+```
+
+Chạy mỗi cổng trong một terminal riêng, từ `frontend/`:
+
+```powershell
+npm run dev:manager
+```
+
+```powershell
+npm run dev:staff
+```
+
+```powershell
+npm run dev:customer
+```
+
+Các trang local:
+
+| Cổng | Portal | Địa chỉ |
+|---:|---|---|
+| 3001 | Manager | http://localhost:3001 |
+| 3002 | Staff | http://localhost:3002 |
+| 3003 | Customer | http://localhost:3003 |
+| 8081 | Backend API | http://localhost:8081/api/v1 |
+| 5433 | PostgreSQL | `localhost:5433/cinema_db` |
+
+## Chạy trên Linux và macOS
+
+Cần cài JDK 21, Node.js 22.12+, npm 11.10.1 và Docker Compose. Tại thư mục gốc:
+
+```bash
+cp .env.example .env
+```
+
+Đổi toàn bộ giá trị `replace-with-*` trong `.env` thành giá trị local riêng. Sau đó nạp biến vào terminal và khởi động database:
+
+```bash
+set -a
+. ./.env
+set +a
+docker compose up -d --wait
+```
+
+Trong terminal đã nạp `.env`, mở backend:
+
+```bash
+cd backend
+./mvnw spring-boot:run
+```
+
+Trong terminal khác, nạp `.env`, rồi cài và chạy frontend:
+
+```bash
 cd frontend
 npm ci
 npm run dev:manager
 ```
 
-Mở thêm hai terminal trong frontend để chạy `npm run dev:staff` và `npm run dev:customer`.
+Chạy `npm run dev:staff` và `npm run dev:customer` trong hai terminal khác. Spring Boot không đọc `.env` tự động; phải nạp các biến như trên hoặc export chúng bằng cách khác trước khi chạy backend.
 
-| Giao diện | URL | User local |
+## Tài khoản và dữ liệu demo
+
+Profile `local` tạo các tài khoản demo nếu chưa tồn tại:
+
+| Vai trò | Username |
+|---|---|
+| Manager | `manager01` |
+| Staff | `staff01`, `staff02`, `staff03`, `staff04` |
+| Customer | `customer01` |
+
+Các tài khoản dùng chung giá trị `DEMO_PASSWORD` trong `.env`. `DEMO_MANAGER_PIN` được dùng cho bước quản lý xác nhận hoàn tiền. Mật khẩu và PIN được hash trước khi lưu. Đổi giá trị trong `.env` không tự đổi thông tin của tài khoản đã tạo trước đó.
+
+Seeder demo trong profile `local` bổ sung catalog phim, lịch chiếu, layout phòng, ảnh F&B và dữ liệu giao dịch để xem dashboard. Mốc hiện tại của bộ dữ liệu demo là khoảng 1.000 vé đã bán và 50 vé hoàn; dữ liệu được ghi vào PostgreSQL, không phải dữ liệu frontend hardcode. Seeder được thiết kế để chạy lặp mà không nhân bản lịch sử đã nạp.
+
+Để dừng database mà giữ dữ liệu:
+
+```powershell
+docker compose down
+```
+
+**Không chạy `docker compose down -v` nếu muốn giữ dữ liệu**; tùy chọn `-v` xóa volume database.
+
+## Cấu hình
+
+`.env.example` là danh sách biến được repository hỗ trợ. Tạo `.env` local bằng script trên Windows hoặc sao chép thủ công trên Linux/macOS.
+
+| Biến | Local mặc định/mẫu | Mục đích |
 |---|---|---|
-| Manager | http://localhost:3001 | manager01 |
-| Staff POS | http://localhost:3002 | staff01 |
-| Customer | http://localhost:3003 | customer01 |
+| `DB_URL` | `jdbc:postgresql://localhost:5433/cinema_db` | JDBC URL của database ứng dụng |
+| `DB_USERNAME`, `DB_PASSWORD` | giá trị local | Tài khoản PostgreSQL; không dùng credential production |
+| `POSTGRES_PORT` | `5433` | Cổng host của PostgreSQL Compose |
+| `SERVER_PORT` | `8081` | Cổng backend |
+| `SPRING_PROFILES_ACTIVE` | `local` | `local` bật tài khoản/dữ liệu demo; profile mặc định không seed demo |
+| `JWT_SECRET` | random tối thiểu 32 byte | Ký access token |
+| `JWT_TTL_SECONDS` | `1800` | Thời hạn access token |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3001,http://localhost:3002,http://localhost:3003` | Origin frontend được phép gọi API |
+| `PORTAL_MANAGER_URL` | `http://localhost:3001` | Địa chỉ chuyển người dùng tới portal Manager |
+| `PORTAL_STAFF_URL` | `http://localhost:3002` | Địa chỉ chuyển người dùng tới portal Staff |
+| `PORTAL_CUSTOMER_URL` | `http://localhost:3003` | Địa chỉ chuyển người dùng tới portal Customer |
+| `DEMO_PASSWORD` | tạo ngẫu nhiên bởi script | Mật khẩu tài khoản demo local |
+| `DEMO_MANAGER_PIN` | tạo ngẫu nhiên bởi script | PIN Manager local |
+| `CINEMA_BANK_BIN` | để trống đến khi cấu hình | Mã BIN dùng tạo VietQR tại quầy |
+| `CINEMA_BANK_ACCOUNT` | để trống đến khi cấu hình | Tài khoản nhận chuyển khoản VietQR |
+| `CINEMA_BANK_NAME` | để trống đến khi cấu hình | Tên ngân hàng nhận VietQR |
+| `VNPAY_TMN_CODE` | merchant sandbox | Mã website/Terminal ID VNPay sandbox |
+| `VNPAY_HASH_SECRET` | secret sandbox | Khóa ký checksum VNPay; giữ riêng trong `.env` |
+| `VNPAY_PAY_URL` | URL sandbox từ nhà cung cấp | Trang thanh toán VNPay sandbox |
+| `VNPAY_RETURN_URL` | Customer portal local | URL trình duyệt quay lại sau thanh toán |
+| `VNPAY_IPN_URL` | cần HTTPS public | URL server nhận thông báo IPN từ VNPay |
+| `PAYMENT_DEMO_ENABLED` | `false` | Công tắc thanh toán mô phỏng, chỉ dùng cho local demo |
+| `JAVA_TOOL_OPTIONS` | `-Duser.timezone=UTC` | Giữ timestamp JVM ở UTC; ngày nghiệp vụ dùng Asia/Ho_Chi_Minh |
 
-Ba user dùng DEMO_PASSWORD trong `.env`, chỉ được tạo khi profile local chạy lần đầu. Thay biến này không tự reset tài khoản đã tồn tại. DEMO_MANAGER_PIN được hash cho Manager, API Manager override dành cho hoàn vé tại POS.
+Frontend gọi API ở `http://localhost:8081/api/v1` mặc định. Nếu đổi cổng backend, đặt `VITE_API_URL` trong `.env.local` của từng app trước khi chạy Vite rồi restart frontend. Các file `.env.example` trong ba app cho cấu hình mẫu.
 
-Frontend gọi http://localhost:8080/api/v1. Muốn đổi, copy `.env.example` của từng app thành `.env.local`, chỉnh VITE_API_URL và restart Vite. Backend CORS đọc CORS_ALLOWED_ORIGINS. Địa chỉ chuyển portal được cấu hình tại backend bằng PORTAL_MANAGER_URL, PORTAL_STAFF_URL, PORTAL_CUSTOMER_URL; mặc định localhost:3001/3002/3003. Địa chỉ ngoài loopback phải dùng HTTPS.
+## Thanh toán VNPay
 
-Linux/macOS: export các biến trong `.env`, chạy `./mvnw spring-boot:run` trong backend và npm như trên. Spring Boot không tự đọc `.env`; Start-Backend.ps1 thực hiện load biến trên Windows. Các lệnh PowerShell trên chỉ chọn RemoteSigned cho tiến trình đang chạy, không thay đổi execution policy toàn máy. Nếu máy được tổ chức quản lý không cho phép, load biến thủ công và chạy Maven trực tiếp.
+VNPay Return URL phục vụ trạng thái hiển thị cho trình duyệt. Backend chỉ xác nhận thanh toán và phát hành vé sau khi nhận, kiểm tra chữ ký và đối chiếu IPN hợp lệ.
 
-## Phiên đăng nhập
+1. Đăng ký/kích hoạt merchant sandbox và lấy `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, cùng URL thanh toán chính xác từ VNPay.
+2. Điền các giá trị đó vào `.env`; không đưa secret vào source code, README, ảnh chụp hoặc URL frontend.
+3. Đặt `VNPAY_RETURN_URL` về Customer portal, thường là `http://localhost:3003/payments/vnpay/return` khi thử local.
+4. VNPay không gọi được `localhost`. Dùng một HTTPS tunnel/domain public đang hoạt động cho `VNPAY_IPN_URL`, trỏ tới `https://<public-host>/api/v1/payments/vnpay/ipn` và đăng ký đúng URL callback với merchant sandbox.
+5. Giữ backend chạy và kiểm tra log/API khi thử thanh toán. Chỉ coi đơn đã thanh toán khi backend cập nhật trạng thái từ IPN hợp lệ.
 
-- Token chỉ ở memory; reload cần login lại, không có refresh token.
-- JWT mặc định 30 phút, mỗi request đọc role/status hiện hành từ DB.
-- Logout thu hồi đúng token hiện tại trong PostgreSQL, kể cả sau restart; các phiên khác giữ hiệu lực.
-- Logout lỗi mạng giữ phiên để retry và thông báo chưa xác nhận thu hồi.
-- Register luôn CUSTOMER/ACTIVE, không nhận role tự chọn. Backend kiểm tra quyền độc lập UI.
-- Đăng nhập ở portal khác role sẽ tự chuyển sang portal đúng, không cần login lần hai. Hệ thống dùng mã chuyển phiên một lần có hạn 30 giây; không đưa JWT hoặc password vào URL.
-- Default profile không seed demo và tắt Swagger. Chỉ dùng local khi phát triển.
+Thẻ/số dư sandbox do VNPay cung cấp là dữ liệu thử nghiệm; không dùng thẻ ngân hàng thật để kiểm tra sandbox. Không bật `PAYMENT_DEMO_ENABLED` trên môi trường dùng dữ liệu hoặc thanh toán thật.
 
-## Build và test
+## Build và kiểm thử
 
-Backend mặc định dùng Testcontainers PostgreSQL, cần Docker đang chạy:
+Các lệnh dưới đây chỉ build hoặc kiểm thử; chúng không thay thế database phát triển bằng database test.
+
+### Backend
+
+Từ PowerShell trong `backend/`:
 
 ```powershell
-cd backend
+.\mvnw.cmd -DskipTests package
+```
+
+Chạy toàn bộ kiểm thử backend:
+
+```powershell
 .\mvnw.cmd verify
 ```
 
-Không có Docker thì cung cấp database test riêng, rỗng ở lần đầu. Test sẽ ghi user và revoke token:
+Integration tests dùng PostgreSQL Testcontainers và cần Docker. Nếu môi trường không chạy được Testcontainers, cung cấp một database test riêng, rỗng:
 
 ```powershell
-$env:DB_TEST_URL = 'jdbc:postgresql://localhost:5432/cinema_foundation_test'
-$env:DB_TEST_USERNAME = 'your-test-db-user'
-$env:DB_TEST_PASSWORD = 'your-test-db-password'
+$env:DB_TEST_URL = 'jdbc:postgresql://localhost:5432/cinema_management_test'
+$env:DB_TEST_USERNAME = 'test-user'
+$env:DB_TEST_PASSWORD = 'test-password'
 .\mvnw.cmd verify
 ```
 
-Không dùng database phát triển/production cho DB_TEST_URL. Không dùng H2 thay PostgreSQL.
+Không trỏ `DB_TEST_URL` tới database local đang dùng hoặc production. Các test có thể ghi dữ liệu và thu hồi token trong database được chỉ định.
 
-Frontend:
+### Frontend
+
+Từ `frontend/`:
 
 ```powershell
-cd frontend
-npm ci
 npm run build
 npm test
-npx playwright install chromium
 ```
 
-E2E cần backend local đang chạy và DEMO_PASSWORD tương ứng. Từ thư mục gốc:
+`npm run build` chạy TypeScript typecheck và build cả ba app. `npm test` chạy Vitest. Chạy browser tests mock:
+
+```powershell
+npx playwright install chromium
+npm run test:e2e
+```
+
+Live E2E cần backend local, database demo và `DEMO_PASSWORD` khớp với tài khoản hiện tại:
+
+```powershell
+npm run test:e2e:live
+```
+
+Hoặc từ thư mục gốc chạy script dùng cho quy trình G5:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\testing\Test-Frontend.ps1
 ```
 
-Playwright tự chạy ba Vite server nếu cổng trống. Nếu server đã có sẵn, bảo đảm nó dùng code hiện tại. GitHub Actions có database riêng cho integration/E2E.
+## Tài liệu dự án
 
-## Cấu trúc và tài liệu
+- [Frontend API contracts](docs/ui-ux/frontend-contracts.md) và [hướng dẫn kiến trúc giao diện](docs/ui-ux/frontend-architecture-and-guide.md).
+- [Code walkthrough](docs/code-walkthrough/README.md), [backend](docs/code-walkthrough/backend.md), [frontend](docs/code-walkthrough/frontend.md).
+- [API docs](docs/api/): auth, catalog, suất chiếu, ghế, booking, VNPay, vé, hoàn vé, báo cáo, tồn kho và audit.
+- [Database schema](docs/database/foundation-schema.md); schema local được áp dụng tuần tự bởi Flyway.
+- [Architecture decisions](docs/decisions/) và [architecture notes](docs/architecture/).
+- [Frontend testing](docs/testing/frontend.md), [Sprint D](docs/testing/sprint-d.md), [Sprint E](docs/testing/sprint-e.md), [Sprint F](docs/testing/sprint-f.md), [G5 validation](docs/testing/g5-validation-2026-11-23.md).
+- [Nguồn poster phim](docs/ui-ux/movie-poster-sources.md) và [nguồn ảnh F&B](docs/ui-ux/concession-image-sources.md).
 
-```text
-backend/              Spring Boot, Maven Wrapper, migration, integration test
-frontend/manager/     Manager :3001
-frontend/staff/       Staff :3002
-frontend/customer/    Customer :3003
-frontend/shared/      Auth UI, API client và layout
-scripts/setup/        Tạo/load env, chạy backend
-docs/                 Bối cảnh, plan, API, schema, decision
-```
+### Quy tắc schema và dữ liệu
 
-- [Bối cảnh yêu cầu](docs/architecture/foundation-context.md)
-- [Contract frontend](docs/ui-ux/frontend-contracts.md)
-- [Quyết định triển khai](docs/decisions/001-foundation.md)
-- [Auth API](docs/api/auth.md)
-- [Schema bàn giao](docs/database/foundation-schema.md)
-- [Hướng dẫn kiểm thử và giới hạn kiểm chứng](docs/testing/frontend.md)
+- Flyway là nguồn quản lý schema. Hibernate chỉ validate schema khi khởi động.
+- Không chạy lại SQL nguồn có thao tác `DROP SCHEMA`; không sửa migration đã chia sẻ. Tạo migration version mới cho thay đổi tiếp theo.
+- Chỉ chạy profile `local` trên database local riêng. Database test, demo và production phải tách nhau.
+- Không xóa Docker volume, file `.env` hoặc dữ liệu database trong thao tác dọn source code.
 
-Flyway quản lý schema; Hibernate chỉ validate. Không chạy nguyên SQL nguồn vì có DROP SCHEMA và seed chưa nhất quán. Migration đã chia sẻ phải được giữ nguyên, thêm version mới khi thay đổi.
+## Xử lý lỗi thường gặp
 
-Nếu khởi động lỗi: kiểm tra JAVA_HOME, database/cổng/credential, JWT_SECRET tối thiểu 32 byte, DEMO_PASSWORD và DEMO_MANAGER_PIN khi profile local. Không bật request/SQL bind logging chứa credential.
+### Trình duyệt báo không kết nối được server
 
+- Kiểm tra database ở cổng `5433`, backend ở `8081`, frontend ở `3001`, `3002`, `3003`.
+- Kiểm tra `SERVER_PORT`, `VITE_API_URL`, `CORS_ALLOWED_ORIGINS`; sau khi đổi biến, restart tiến trình tương ứng.
+- Backend phải chạy trước khi đăng nhập; HTTP 200 từ Vite chỉ xác nhận frontend hoạt động, không xác nhận API/database.
 
-## Demo Seat Holding (Sprint D)
+### Docker không khởi động PostgreSQL
 
-Chạy backend với database riêng và profile `local`, mở Swagger tại http://localhost:8080/swagger-ui/index.html. Manager đăng nhập, tạo movie → auditorium → ghế thường/VIP/Sweetbox → ghép Sweetbox cùng hàng liền kề → tạo showtime trong tương lai. Layout/pair phải hoàn tất trước khi tạo lịch; phòng có lịch không thêm/sửa ghế hoặc pair/unpair được nữa (`409 AUDITORIUM_LAYOUT_LOCKED`).
+- Mở Docker Desktop và đợi engine sẵn sàng.
+- Kiểm tra cổng host `5433` có bị tiến trình khác chiếm không và `.env` có `DB_USERNAME`/`DB_PASSWORD` nhất quán.
+- Chạy `docker compose ps` và `docker compose logs postgres` để xem trạng thái. Không dùng `down -v` để sửa lỗi trước khi sao lưu dữ liệu.
 
-Dùng JWT của Staff và Customer ở hai client độc lập, gọi `GET /api/v1/showtimes/{id}/seats`, sau đó cùng POST `/api/v1/showtimes/{id}/holds` với `{"seatIds":[...]}`. Chỉ một client giữ được cùng ghế. Đồng hồ bắt đầu sau response 201, hold 5 phút; Staff đang chờ chuyển khoản được gia hạn một lần từ phút 4, cộng 2 phút vào hạn cũ. DELETE `/api/v1/holds/{token}` giải phóng nhóm. Cùng tài khoản đăng nhập hai lần vẫn là hai phiên sở hữu độc lập.
+### Backend không khởi động
 
-[API seat holding](docs/api/seat-holding.md), [quyết định Sprint D](docs/decisions/004-seat-holding.md), [kiểm thử PostgreSQL](docs/testing/sprint-d.md). Chạy `bash mvnw verify` trong backend với Docker/Testcontainers hoặc DB_TEST_* của database test riêng. Trước tích hợp dữ liệu cũ, chạy script SELECT [check-showtime-inventory.sql](scripts/testing/check-showtime-inventory.sql); không tự rebuild inventory có lịch sử.
+- Kiểm tra JDK 21 và `JAVA_HOME`.
+- Xác nhận PostgreSQL healthy, database tồn tại và thông tin `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` chính xác.
+- Nếu migration báo lỗi checksum, không tự sửa lịch sử Flyway hoặc xóa schema; xem migration và database đang dùng trước.
+- Nếu cổng `8081` bị chiếm, dừng tiến trình cũ hoặc đổi `SERVER_PORT` và đồng bộ `VITE_API_URL`.
 
-## Demo Checkout (Sprint E)
+### Frontend không gọi được backend
 
-Backend E nối tiếp hold của D: `POST /api/v1/bookings` tạo Booking PENDING từ hold token, sau đó STAFF thanh toán tại quầy (`cash`, `vietqr`, `vietqr/confirm`) hoặc CUSTOMER thanh toán online qua VNPay. Chỉ Payment PAID mới phát hành Ticket; vé được đọc qua `/api/v1/tickets/{ticketCode}` và soát tại cổng bằng `/api/v1/tickets/validate`. Lịch sử CUSTOMER ở `/api/v1/me/bookings`; lịch sử quầy ở `/api/v1/pos/bookings` (chỉ channel POS, không lộ Booking ONLINE).
+- Mặc định local là `http://localhost:8081/api/v1`.
+- Origin portal phải xuất hiện trong `CORS_ALLOWED_ORIGINS`.
+- Restart Vite sau khi sửa `.env.local`. Dùng Ctrl+Shift+R để tải lại bundle trong browser.
 
-Luồng demo gợi ý trên Swagger: Manager tạo movie/auditorium/ghế/showtime → Staff hoặc Customer giữ ghế → tạo Booking → Staff thanh toán cash/VietQR hoặc Customer lấy URL VNPay → Staff soát vé. VNPay cần `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_PAY_URL`, `VNPAY_RETURN_URL`, `VNPAY_IPN_URL`; VietQR cần `CINEMA_BANK_ACCOUNT`, `CINEMA_BANK_NAME`. Không finalize từ Return URL: chỉ IPN hợp lệ mới phát hành vé.
+### VNPay không gửi được callback
 
-[API tổng hợp Sprint E](docs/api/checkout-ticket.md), [quyết định Sprint E](docs/decisions/005-checkout-ticket.md), [kiểm thử Sprint E](docs/testing/sprint-e.md). Các tài liệu chi tiết: [Booking](docs/api/bookings.md), [thanh toán POS](docs/api/pos-payments.md), [VNPay](docs/api/vnpay-payment.md), [vé và soát vé](docs/api/tickets.md), [lịch sử CUSTOMER](docs/api/my-bookings.md), [lịch sử POS](docs/api/pos-history.md).
+- VNPay không thể gọi `localhost` hoặc địa chỉ LAN riêng. Dùng hostname HTTPS public đang hoạt động.
+- Kiểm tra đường dẫn callback `/api/v1/payments/vnpay/ipn`, tunnel trỏ đúng backend, và URL IPN đã đăng ký trong merchant sandbox.
+- Không cấp vé chỉ dựa vào trang Return URL hoặc ảnh chụp thành công ở sandbox.
 
-## Demo Refund và Reports (Sprint F)
+### Tài khoản demo không đăng nhập được
 
-STAFF tra cứu `/api/v1/refunds/eligibility` bằng `bookingCode` hoặc `ticketCode`, kể cả vé mua ONLINE. Chọn các vé VALID còn ít nhất 30 phút trước giờ chiếu. Manager xác nhận giao tiền mặt tại POS và nhập username/PIN trong request `/api/v1/manager-overrides`; Staff giữ nguyên phiên đăng nhập. Token duyệt có hạn 180 giây, chỉ dùng cho đúng tập vé, Booking, lý do và phiên Staff. Gọi `/api/v1/refunds` với token và cùng nội dung để hoàn vé; retry cùng token trả kết quả cũ. Không hoàn F&B hoặc hồi kho.
-
-MANAGER gọi bảy endpoint `/api/v1/reports/*` với `from`/`to` dạng YYYY-MM-DD; inventory-alerts lấy tồn kho hiện tại không cần ngày. Revenue lấy các Booking đã thanh toán trong kỳ, trừ refund của các Booking đó đến thời điểm truy vấn, nên kỳ cũ có thể đổi sau hoàn vé. Tiền VNPay đã nhận nhưng Booking đang EXCEPTION_PENDING_DECISION được tách riêng.
-
-[API Sprint F](docs/api/refund-reports.md), [quyết định Sprint F](docs/decisions/006-refund-reports.md), [kiểm thử Sprint F](docs/testing/sprint-f.md). V8 bổ sung bảo vệ refund/override, giữ nguyên V1–V7.
-
-Frontend G5: [contract API](docs/ui-ux/frontend-contracts.md), [hướng dẫn kiểm thử](docs/testing/frontend.md), [bằng chứng và giới hạn 27 màn](docs/testing/g5-validation-2026-11-23.md).
-
-Đọc code: [Code walkthrough](docs/code-walkthrough/README.md) mô tả kiến trúc, luồng xử lý, input/output frontend và backend, cùng các invariant booking/thanh toán/hoàn vé.
+- Username nằm trong bảng [tài khoản demo](#tài-khoản-và-dữ-liệu-demo); mật khẩu nằm trong `.env` dưới `DEMO_PASSWORD`.
+- Thay `DEMO_PASSWORD` sau khi user đã được tạo không reset password lưu trong database. Dùng quy trình reset password của hệ thống hoặc khởi tạo database demo riêng nếu cần làm mới hoàn toàn.

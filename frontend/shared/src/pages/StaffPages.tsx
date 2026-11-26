@@ -8,7 +8,7 @@ import { Feedback } from "../components/Feedback";
 import { AgeConfirmation } from "../components/AgeConfirmation";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { money, dateTime, today } from "../utils/format";
-import type { Eligibility, Ticket } from "../types";
+import type { Eligibility, Refund, Ticket } from "../types";
 import { ApiError } from "../api";
 const refundReasonLabel: Record<string, string> = {
   REFUND_DEADLINE_PASSED: "Đã qua hạn hoàn",
@@ -19,16 +19,14 @@ export function ManagerOverrideDialog({
   bookingId,
   ticketIds,
   reason,
-  cashConfirmed,
   onClose,
   onDone,
 }: {
   bookingId: number;
   ticketIds: number[];
   reason: string;
-  cashConfirmed: boolean;
   onClose: () => void;
-  onDone: (amount: number) => void;
+  onDone: (refund: Refund) => void;
 }) {
   const { session } = useAuth();
   const [username, setUsername] = useState(""),
@@ -38,6 +36,7 @@ export function ManagerOverrideDialog({
       expiresAt: string;
       approvedRefundAmount: number;
     } | null>(null),
+    [cashConfirmedAt, setCashConfirmedAt] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   async function approve(e: FormEvent) {
@@ -61,8 +60,27 @@ export function ManagerOverrideDialog({
       setBusy(false);
     }
   }
+  async function confirmCash() {
+    if (!override || busy || cashConfirmedAt) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await refundsApi.confirmCash(override.overrideToken, session.accessToken);
+      setCashConfirmedAt(result.cashConfirmedAt);
+    } catch (e) {
+      if (e instanceof ApiError && ["MANAGER_OVERRIDE_EXPIRED", "MANAGER_OVERRIDE_REQUIRED", "MANAGER_PIN_INVALID"].includes(e.code)) {
+        setOverride(null);
+        setCashConfirmedAt(null);
+        setError("Phê duyệt hết hạn hoặc không còn hợp lệ. Vui lòng xác thực Manager lại.");
+        return;
+      }
+      setError((e as Error).message + " Nếu phản hồi bị gián đoạn, hãy thử lại cùng yêu cầu này.");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function refund() {
-    if (!override || busy) return;
+    if (!override || !cashConfirmedAt || busy) return;
     setBusy(true);
     setError("");
     try {
@@ -72,11 +90,10 @@ export function ManagerOverrideDialog({
           ticketIds,
           reason,
           overrideToken: override.overrideToken,
-          cashConfirmed,
         },
         session.accessToken,
       );
-      onDone(result.refundAmount);
+      onDone(result);
     } catch (e) {
       if (e instanceof ApiError && ["MANAGER_OVERRIDE_EXPIRED", "MANAGER_OVERRIDE_REQUIRED", "MANAGER_PIN_INVALID"].includes(e.code)) {
         setOverride(null);
@@ -92,6 +109,10 @@ export function ManagerOverrideDialog({
     <ConfirmDialog
       title="Manager duyệt hoàn vé"
       onClose={() => {
+        if (cashConfirmedAt) {
+          setError("Tiền đã được xác nhận là đã giao. Hoàn tất ghi nhận giao dịch trước khi đóng cửa sổ này.");
+          return;
+        }
         setPin("");
         setOverride(null);
         onClose();
@@ -125,9 +146,21 @@ export function ManagerOverrideDialog({
       ) : (
         <>
           <p>Phê duyệt có hạn đến {dateTime(override.expiresAt)}. Số tiền được duyệt: {money(override.approvedRefundAmount)}.</p>
-          <button disabled={busy} onClick={refund}>
-            Hoàn các vé đã chọn
-          </button>
+          {!cashConfirmedAt ? (
+            <>
+              <p>Manager: lấy tiền từ két quầy (Cash Float), kiểm đếm đủ số tiền, bàn giao cho Staff và để Staff giao tiền cho khách. Sau khi khách đã nhận đủ tiền, Manager xác nhận tại đây.</p>
+              <button disabled={busy} onClick={confirmCash}>
+                Manager xác nhận đã bàn giao đủ tiền mặt
+              </button>
+            </>
+          ) : (
+            <>
+              <p role="status">Manager đã xác nhận bàn giao tiền lúc {dateTime(cashConfirmedAt)}.</p>
+              <button disabled={busy} onClick={refund}>
+                Ghi nhận hoàn vé
+              </button>
+            </>
+          )}
         </>
       )}
     </ConfirmDialog>
@@ -140,9 +173,9 @@ export function RefundPage() {
     [eligibility, setEligibility] = useState<Eligibility>(),
     [selected, setSelected] = useState<number[]>([]),
     [reason, setReason] = useState(""),
-    [cashConfirmed, setCashConfirmed] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
+    [receipt, setReceipt] = useState<(Refund & { bookingCode: string; reason: string; seatLabels: string[] }) | undefined>(),
     [busy, setBusy] = useState(false),
     [dialog, setDialog] = useState(false);
   async function lookup(e: FormEvent) {
@@ -151,9 +184,9 @@ export function RefundPage() {
     setBusy(true);
     setError("");
     setNotice("");
+    setReceipt(undefined);
     setSelected([]);
     setEligibility(undefined);
-    setCashConfirmed(false);
     try {
       setEligibility(await refundsApi.eligibility(code, codeType, session.accessToken));
     } catch (e) {
@@ -176,7 +209,6 @@ export function RefundPage() {
             setCodeType(e.target.value as "bookingCode" | "ticketCode");
             setEligibility(undefined);
             setSelected([]);
-            setCashConfirmed(false);
           }}>
             <option value="bookingCode">Booking Code</option>
             <option value="ticketCode">Ticket Code</option>
@@ -191,7 +223,6 @@ export function RefundPage() {
               setCode(e.target.value);
               setEligibility(undefined);
               setSelected([]);
-              setCashConfirmed(false);
             }}
           />
         </label>
@@ -203,10 +234,27 @@ export function RefundPage() {
           {notice}
         </p>
       )}
+      {receipt && (
+        <section className="refund-receipt receipt card">
+          <h2>Biên lai xác nhận hoàn vé</h2>
+          <p>Mã hoàn vé: {receipt.refundId}</p>
+          <p>Booking: {receipt.bookingCode}</p>
+          <p>Vé đã hủy: {receipt.seatLabels.join(", ")}</p>
+          <p>Số tiền hoàn bằng tiền mặt: {money(receipt.refundAmount)}</p>
+          <p>Lý do: {receipt.reason}</p>
+          <p>Manager xác nhận đã bàn giao tiền: {dateTime(receipt.cashConfirmedAt)}</p>
+          <button className="no-print" onClick={() => {
+            document.body.classList.add("printing-refund");
+            window.addEventListener("afterprint", () => document.body.classList.remove("printing-refund"), { once: true });
+            window.print();
+          }}>In biên lai hoàn vé</button>
+          <button className="no-print" onClick={() => setReceipt(undefined)}>Đóng biên lai</button>
+        </section>
+      )}
       {eligibility && (
         <>
           <p>
-            Đơn {eligibility.bookingCode} · {eligibility.channel === "POS" ? "Tại quầy" : "Trực tuyến"} · Suất {dateTime(eligibility.startsAt)}
+            Đơn {eligibility.bookingCode}, {eligibility.channel === "POS" ? "Tại quầy" : "Trực tuyến"}, Suất {dateTime(eligibility.startsAt)}
           </p>
           {eligibility.tickets.map((t) => (
             <label className="checkbox" key={t.ticketId}>
@@ -216,7 +264,6 @@ export function RefundPage() {
                 checked={selected.includes(t.ticketId)}
                 onChange={(e) =>
                   {
-                    setCashConfirmed(false);
                     setSelected(
                       e.target.checked
                         ? [...selected, t.ticketId]
@@ -225,8 +272,8 @@ export function RefundPage() {
                   }
                 }
               />
-              {t.seatLabel} · {t.ticketCode} · {t.status} ·{" "}
-              {money(t.refundableAmount)} {t.reason && `· ${refundReasonLabel[t.reason] ?? t.reason}`}
+              {t.seatLabel}, {t.ticketCode}, {t.status},{" "}
+              {money(t.refundableAmount)} {t.reason && `, ${refundReasonLabel[t.reason] ?? t.reason}`}
             </label>
           ))}
           <p>
@@ -244,20 +291,11 @@ export function RefundPage() {
               value={reason}
               onChange={(e) => {
                 setReason(e.target.value);
-                setCashConfirmed(false);
               }}
             />
           </label>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={cashConfirmed}
-              onChange={(e) => setCashConfirmed(e.target.checked)}
-            />
-            Xác nhận đã bàn giao đủ tiền mặt cho khách trước khi xin duyệt
-          </label>
           <button
-            disabled={!selected.length || !reason.trim() || !cashConfirmed}
+            disabled={!selected.length || !reason.trim()}
             onClick={() => setDialog(true)}
           >
             Yêu cầu Manager duyệt
@@ -269,13 +307,18 @@ export function RefundPage() {
           bookingId={eligibility.bookingId}
           ticketIds={selected}
           reason={reason}
-          cashConfirmed={cashConfirmed}
           onClose={() => setDialog(false)}
-          onDone={(amount) => {
+          onDone={(refund) => {
             setDialog(false);
+            setNotice("");
+            setReceipt({
+              ...refund,
+              bookingCode: eligibility.bookingCode,
+              reason,
+              seatLabels: eligibility.tickets.filter((ticket) => refund.ticketIds.includes(ticket.ticketId)).map((ticket) => ticket.seatLabel),
+            });
             setEligibility(undefined);
             setSelected([]);
-            setNotice("Hoàn vé thành công: " + money(amount));
           }}
         />
       )}
@@ -353,7 +396,7 @@ export function TicketValidationPage() {
           <option value="">Chọn suất</option>
           {shows.data?.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.movieTitle} · {s.auditoriumName} · {dateTime(s.startTime)}
+              {s.movieTitle}, {s.auditoriumName}, {dateTime(s.startTime)}
             </option>
           ))}
         </select>
@@ -375,10 +418,10 @@ export function TicketValidationPage() {
       {tickets.map((t) => (
         <article className="card" key={t.ticketId}>
           <h3>
-            {t.movieTitle} · {t.seatLabel}
+            {t.movieTitle}, {t.seatLabel}
           </h3>
           <p>
-            {t.ticketCode} · {t.status} · {dateTime(t.startTime)}
+            {t.ticketCode}, {t.status}, {dateTime(t.startTime)}
           </p>
           {Number(showtimeId) !== t.showtimeId && (
             <p role="status" className="alert error">Vé này thuộc suất chiếu khác với cửa đang chọn.</p>

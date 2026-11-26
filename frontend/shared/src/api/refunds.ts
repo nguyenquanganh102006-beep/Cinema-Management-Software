@@ -51,17 +51,22 @@ export const refundsApi = {
       "/manager-overrides",
       {
         method: "POST",
-        body: { ...input, scope: "REFUND_APPROVAL", cashConfirmed: true },
+        body: { ...input, scope: "REFUND_APPROVAL" },
         token,
       },
     ),
+  confirmCash: (overrideToken: string, token: string) =>
+    request<{ cashConfirmedAt: string }>("/manager-overrides/cash-confirmation", {
+      method: "POST",
+      body: { overrideToken },
+      token,
+    }),
   refund: (
     body: {
       bookingId: number;
       ticketIds: number[];
       reason: string;
       overrideToken: string;
-      cashConfirmed: boolean;
     },
     token: string,
   ) => request<Refund>("/refunds", { method: "POST", body, token }),

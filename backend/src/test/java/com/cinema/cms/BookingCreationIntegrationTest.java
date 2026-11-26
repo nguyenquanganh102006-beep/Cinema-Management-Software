@@ -516,13 +516,17 @@ class BookingCreationIntegrationTest extends SeatHoldTestSupport {
     private Long showtime(Integer roomId, Long movieId, Timestamp start) {
         Long id =
                 jdbc.queryForObject(
-                        "insert into showtimes(movie_id,auditorium_id,start_time,end_time,base_price)"
-                                + " values (?,?,?,?,70000) returning showtime_id",
+                        "insert into showtimes(movie_id,auditorium_id,start_time,end_time,base_price,"
+                                + "movie_title_snapshot,age_rating_snapshot,duration_minutes_snapshot,"
+                                + "auditorium_name_snapshot,auditorium_type_snapshot) "
+                                + "select m.movie_id,a.auditorium_id,?,?,70000,m.title,m.age_rating,"
+                                + "m.duration_minutes,a.name,a.auditorium_type::text "
+                                + "from movies m cross join auditoriums a where m.movie_id=? and a.auditorium_id=? returning showtime_id",
                         Long.class,
-                        movieId,
-                        roomId,
                         start,
-                        Timestamp.from(start.toInstant().plusSeconds(8100)));
+                        Timestamp.from(start.toInstant().plusSeconds(8100)),
+                        movieId,
+                        roomId);
         jdbc.update(
                 "insert into showtime_seats(showtime_id,seat_id) select ?,seat_id from seats where"
                         + " auditorium_id=?",

@@ -9,7 +9,6 @@ public record ManagerOverrideRequest(
     @NotBlank @Pattern(regexp="REFUND_APPROVAL") String scope,
     @NotNull @Positive Long bookingId,
     @NotEmpty @Size(max=200) List<@NotNull @Positive Long> ticketIds,
-    @NotBlank @Size(max=255) String reason,
-    @NotNull @AssertTrue Boolean cashConfirmed) {
+    @NotBlank @Size(max=255) String reason) {
     @Override public String toString() { return "ManagerOverrideRequest[REDACTED]"; }
 }

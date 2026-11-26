@@ -4,8 +4,6 @@ import com.cinema.cms.dto.*;
 import com.cinema.cms.entity.*;
 import com.cinema.cms.repository.*;
 import java.math.*;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.List;
 import org.slf4j.Logger;
@@ -32,6 +30,8 @@ public class PosPaymentService {
     private final MovieRepository movies;
     private final CheckoutService checkout;
     private final Clock clock;
+    private final AuditEventService auditEvents;
+    private final String bankBin;
     private final String bankAccount;
     private final String bankName;
 
@@ -43,6 +43,8 @@ public class PosPaymentService {
             MovieRepository movies,
             CheckoutService checkout,
             Clock clock,
+            AuditEventService auditEvents,
+            @Value("${app.payments.vietqr.bank-bin:}") String bankBin,
             @Value("${app.payments.vietqr.bank-account:}") String bankAccount,
             @Value("${app.payments.vietqr.bank-name:}") String bankName) {
         this.bookings = bookings;
@@ -52,6 +54,8 @@ public class PosPaymentService {
         this.movies = movies;
         this.checkout = checkout;
         this.clock = clock;
+        this.auditEvents = auditEvents;
+        this.bankBin = bankBin == null ? "" : bankBin.strip();
         this.bankAccount = bankAccount == null ? "" : bankAccount.strip();
         this.bankName = bankName == null ? "" : bankName.strip();
     }
@@ -108,6 +112,8 @@ public class PosPaymentService {
                     result.payment().getCashReceived(),
                     change,
                     result.tickets().size());
+            auditEvents.record(staffId, "POS_CASH_PAYMENT_CONFIRMED", "SUCCESS", "BOOKING", bookingId,
+                    "paymentId=" + result.payment().getId() + "; amount=" + result.payment().getAmount());
             return cashResponse(result);
         } catch (ApiException e) {
             audit.warn(
@@ -154,7 +160,7 @@ public class PosPaymentService {
 
             String transferContent = TRANSFER_PREFIX + booking.getBookingCode();
             String qrPayload =
-                    qrPayload(bankName, bankAccount, money(payment.getAmount()), transferContent);
+                    VietQrPayloadBuilder.build(bankBin, bankAccount, money(payment.getAmount()), transferContent);
             audit.info(
                     "action=VIETQR_CREATED result=PENDING bookingId={} bookingCode={} staffId={}"
                             + " paymentId={} amount={}",
@@ -163,6 +169,8 @@ public class PosPaymentService {
                     staffId,
                     payment.getId(),
                     payment.getAmount());
+            auditEvents.record(staffId, "VIETQR_CREATED", "SUCCESS", "PAYMENT", payment.getId(),
+                    "bookingId=" + bookingId + "; amount=" + payment.getAmount());
             return new VietQrPaymentResponse(
                     payment.getId(),
                     bookingId,
@@ -223,6 +231,9 @@ public class PosPaymentService {
                     result.payment().getId(),
                     result.payment().getAmount(),
                     result.tickets().size());
+            auditEvents.record(staffId, "VIETQR_CONFIRMED", "SUCCESS", "PAYMENT", result.payment().getId(),
+                    "bookingId=" + bookingId + "; amount=" + result.payment().getAmount()
+                            + "; tickets=" + result.tickets().size());
             return new VietQrConfirmResponse(
                     result.payment().getId(),
                     result.booking().getId(),
@@ -276,11 +287,7 @@ public class PosPaymentService {
                                                 404,
                                                 "SHOWTIME_NOT_FOUND",
                                                 "Không tìm thấy suất chiếu"));
-        return movies
-                .findById(showtime.getMovieId())
-                .orElseThrow(
-                        () -> new ApiException(404, "MOVIE_NOT_FOUND", "Không tìm thấy phim"))
-                .getAgeRating();
+        return showtime.getAgeRatingSnapshot();
     }
 
     private static void requireAgeDocument(Boolean ageDocumentChecked, AgeRating ageRating) {
@@ -290,7 +297,9 @@ public class PosPaymentService {
     }
 
     private void requireBankConfiguration() {
-        if (bankAccount.isBlank() || bankName.isBlank()) {
+        if (bankBin.isBlank() || !bankBin.matches("[0-9]{6}")
+                || bankAccount.isBlank() || !bankAccount.matches("[0-9]{1,19}")
+                || bankName.isBlank()) {
             throw new ApiException(
                     503,
                     "PAYMENT_CONFIGURATION_MISSING",
@@ -339,22 +348,6 @@ public class PosPaymentService {
                                         ticket.getStatus().name(),
                                         ticket.getIssuedAt()))
                 .toList();
-    }
-
-    private static String qrPayload(
-            String bankName, String bankAccount, BigDecimal amount, String transferContent) {
-        return "vietqr://transfer?bankName="
-                + encode(bankName)
-                + "&account="
-                + encode(bankAccount)
-                + "&amount="
-                + amount.toPlainString()
-                + "&content="
-                + encode(transferContent);
-    }
-
-    private static String encode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private static BigDecimal money(BigDecimal value) {

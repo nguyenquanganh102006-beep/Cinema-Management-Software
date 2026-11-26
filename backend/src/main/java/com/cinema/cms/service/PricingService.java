@@ -21,16 +21,19 @@ public class PricingService {
     private final AuditoriumRepository auditoriums;
     private final SeatRepository seats;
     private final PricingRuleRepository rules;
+    private final ShowtimeSaleGuard saleGuard;
 
     public PricingService(
             ShowtimeRepository showtimes,
             AuditoriumRepository auditoriums,
             SeatRepository seats,
-            PricingRuleRepository rules) {
+            PricingRuleRepository rules,
+            ShowtimeSaleGuard saleGuard) {
         this.showtimes = showtimes;
         this.auditoriums = auditoriums;
         this.seats = seats;
         this.rules = rules;
+        this.saleGuard = saleGuard;
     }
 
     @Transactional(readOnly = true)
@@ -38,13 +41,7 @@ public class PricingService {
         SeatHoldService.validateShowtimeId(showtimeId);
         List<Long> ids = validatedSeatIds(seatIds);
 
-        Showtime showtime =
-                showtimes
-                        .findById(showtimeId)
-                        .orElseThrow(
-                                () ->
-                                        new ApiException(
-                                                404, "SHOWTIME_NOT_FOUND", "Không tìm thấy suất chiếu"));
+        Showtime showtime = saleGuard.requireSaleable(showtimeId);
         Auditorium room =
                 auditoriums
                         .findById(showtime.getAuditoriumId())
@@ -60,7 +57,7 @@ public class PricingService {
         Map<RuleKey, BigDecimal> amounts = ruleAmounts();
         BigDecimal basePrice = money(showtime.getBasePrice());
         BigDecimal roomSurcharge =
-                ruleAmount(amounts, PricingRuleType.ROOM_SURCHARGE, room.getType().value());
+                ruleAmount(amounts, PricingRuleType.ROOM_SURCHARGE, showtime.getAuditoriumTypeSnapshot());
         BigDecimal timeSurcharge =
                 timeSurchargeApplies(showtime.getStartTime())
                         ? ruleAmount(amounts, PricingRuleType.TIME_SURCHARGE, TIME_TARGET)

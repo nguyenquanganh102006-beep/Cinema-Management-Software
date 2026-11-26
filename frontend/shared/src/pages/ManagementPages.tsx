@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { useQuery } from "../hooks/useQuery";
 import { managementApi, PartialSaveError } from "../api/management";
 import { catalogApi } from "../api/catalog";
+import { reportApi } from "../api/reports";
 import { ReportsPage } from "./reports/ReportsPage";
 import { PhysicalSeatLayout } from "../components/PhysicalSeatLayout";
 import { Feedback } from "../components/Feedback";
@@ -681,18 +682,44 @@ export function InventoryPage() {
         <label>Trạng thái<select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}><option value="">Tất cả</option><option value="IN_STOCK">Còn hàng</option><option value="LOW_STOCK">Sắp hết</option><option value="OUT_OF_STOCK">Hết hàng</option></select></label>
       </div>
       <Feedback {...result} empty={result.data?.data.length === 0} retry={result.refetch} />
-      {result.data?.data.map((i) => (
-        <article className="card" key={i.itemId}>
-          <h3>{i.itemName}</h3>
-          <p>
-            Tồn {i.stockQuantity} · Ngưỡng {i.lowStockThreshold}{" "}
-            {i.stockQuantity <= i.lowStockThreshold
-              ? "· Sắp hết / Hết hàng"
-              : ""}
-          </p>
-          <button onClick={() => setItem(i)}>Nhập kho</button> <Link to={`/inventory/history?itemId=${i.itemId}&name=${encodeURIComponent(i.itemName)}`}>Lịch sử {i.itemName}</Link>
-        </article>
-      ))}
+      {Boolean(result.data?.data.length) && (
+        <div className="table-scroll">
+          <table className="inventory-table">
+            <thead>
+              <tr>
+                <th>Mặt hàng</th>
+                <th>Tồn kho</th>
+                <th>Ngưỡng tối thiểu</th>
+                <th>Trạng thái</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.data?.data.map((i) => {
+                const status = i.stockQuantity <= 0
+                  ? { label: "Hết hàng", tone: "out" }
+                  : i.stockQuantity <= i.lowStockThreshold
+                    ? { label: "Sắp hết", tone: "low" }
+                    : { label: "Đủ hàng", tone: "ready" };
+                return (
+                  <tr key={i.itemId}>
+                    <td><strong>{i.itemName}</strong></td>
+                    <td>{i.stockQuantity}</td>
+                    <td>{i.lowStockThreshold}</td>
+                    <td><span className={`stock-status ${status.tone}`}>{status.label}</span></td>
+                    <td>
+                      <div className="inventory-actions">
+                        <button onClick={() => setItem(i)}>Nhập kho</button>
+                        <Link to={`/inventory/history?itemId=${i.itemId}&name=${encodeURIComponent(i.itemName)}`}>Lịch sử</Link>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {result.data && <Pagination meta={result.data.meta} onPage={setPage} />}
       {item && (
         <ResourceEditor
@@ -897,6 +924,10 @@ export function StaffPage() {
 }
 export { ReportsPage } from "./reports/ReportsPage";
 export function DashboardPage() {
+  const { session } = useAuth();
+  const exceptions = useQuery("payment-exceptions", (signal) =>
+    reportApi.paymentExceptions(session.accessToken, signal),
+  );
   return (
     <>
       <h2>Tổng quan rạp</h2>
@@ -905,6 +936,19 @@ export function DashboardPage() {
         <Link to="/showtimes">Lập lịch chiếu</Link>
         <Link to="/reports">Báo cáo theo kỳ</Link>
       </div>
+      <section className="card" aria-labelledby="payment-exceptions-title">
+        <h3 id="payment-exceptions-title">Thanh toán đã nhận, đơn cần xử lý</h3>
+        <p>Đơn đã thu tiền nhưng chưa thể phát hành vé. Quản lý cần liên hệ quầy để hỗ trợ khách.</p>
+        <Feedback {...exceptions} retry={exceptions.refetch} />
+        {exceptions.data && exceptions.data.length === 0 && <p>Không có đơn thanh toán ngoại lệ đang chờ.</p>}
+        {exceptions.data?.map((item) => (
+          <article className="card" key={item.bookingId}>
+            <h4>{item.bookingCode}: {item.movieTitle}</h4>
+            <p>{item.auditoriumName}, suất {dateTime(item.showtimeStartsAt)}</p>
+            <p>Đã nhận {money(item.amount)} lúc {dateTime(item.paidAt)}. Mã lỗi {item.reasonCode}</p>
+          </article>
+        ))}
+      </section>
       <ReportsPage compact />
     </>
   );

@@ -18,7 +18,7 @@ Các tài liệu chi tiết theo chủ đề:
 
 | Method | Path | Quyền | Thành công |
 |---|---|---|---|
-| POST | `/pricing/quote` | STAFF, CUSTOMER | 200 `PricingQuoteResponse` |
+| POST | `/pricing/quote` | STAFF, CUSTOMER, MANAGER | 200 `PricingQuoteResponse` |
 | POST | `/bookings` | STAFF, CUSTOMER | 201 `BookingResponse` |
 | GET | `/bookings/{id}` | STAFF (Booking của mình), CUSTOMER (chủ sở hữu) | 200 `BookingResponse` |
 | GET | `/bookings/{bookingId}/tickets` | STAFF, CUSTOMER (chủ sở hữu) | 200 `[TicketResponse]` |
@@ -73,6 +73,9 @@ Mọi endpoint có JWT (trừ hai callback VNPay) có thể trả:
 Các mã nghiệp vụ riêng được liệt kê theo từng nhóm bên dưới.
 
 ## Báo giá vé
+
+Quote chỉ hoạt động nếu Movie và Auditorium của Showtime đang active; nếu một bên
+đã ngừng hoạt động, trả 409 `SHOWTIME_UNAVAILABLE`.
 
 ```http
 POST /api/v1/pricing/quote
@@ -279,9 +282,9 @@ Content-Type: application/json
     "bookingCode": "BK-301231-0042",
     "amount": 180000.00,
     "bankAccount": "0123456789",
-    "bankName": "Vietcombank",
+    "bankName": "VietinBank",
     "transferContent": "CINEMA BK-301231-0042",
-    "qrPayload": "vietqr://transfer?bankName=Vietcombank&account=0123456789&amount=180000.00&content=CINEMA%20BK-301231-0042",
+    "qrPayload": "00020101021138500010A0000007270106970415021001234567890308QRIBFTTA530370454061800005802VN62250821CINEMA BK-301231-004263047298",
     "paymentStatus": "PENDING"
   }
 }
@@ -320,9 +323,11 @@ Authorization: Bearer <staff-jwt>
 
 - Tạo VietQR là idempotent khi đã có Payment `VIETQR` PENDING; không tạo dòng thứ hai.
 - Confirm lần hai trả 409 `BOOKING_ALREADY_PAID`, không phát hành thêm Ticket.
-- Thiếu `CINEMA_BANK_ACCOUNT`/`CINEMA_BANK_NAME` trả 503
+- Thiếu/sai `CINEMA_BANK_BIN`/`CINEMA_BANK_ACCOUNT`/`CINEMA_BANK_NAME` trả 503
   `PAYMENT_CONFIGURATION_MISSING`.
-- `qrPayload` hiện là URI nội bộ để portal render QR, chưa phải chuỗi EMVCo.
+- `qrPayload` là payload EMVCo MPM/VietQR; cấu hình sai BIN hoặc tài khoản vẫn có
+  thể làm ngân hàng từ chối. STAFF phải xác nhận tiền đã vào tài khoản bằng tay;
+  chưa có webhook/API đối soát ngân hàng.
 
 ### Mã lỗi thanh toán POS
 
@@ -421,12 +426,14 @@ HTTP luôn 200; VNPay đọc `RspCode` trong body:
 | `97` | Sai chữ ký hoặc sai `vnp_TmnCode` |
 | `99` | Thiếu cấu hình, thiếu `vnp_ResponseCode`, dữ liệu không hợp lệ, lỗi tạm thời |
 
-Nếu IPN hợp lệ nhưng checkout thất bại vì hold hết hạn, thiếu tồn kho, giá đổi,
-nhóm ghế lệch hoặc lỗi nghiệp vụ khác: **không** phát hành Ticket, Booking chuyển
-`EXCEPTION_PENDING_DECISION`, Payment ghi nhận `PAID`, ghi audit log và vẫn trả `"00"`
-để VNPay dừng retry. Ngoại lệ: `BOOKING_ALREADY_PAID` trả `"02"` nếu Payment đã PAID;
-`SEAT_UPDATE_CONFLICT`, lỗi DB tạm thời hoặc trường hợp không thể ghi nhận ngoại lệ trả
-`"99"` để VNPay gọi lại.
+Nếu IPN thành công đến sau khi hold hết hạn, hệ thống khóa lại ghế dự kiến. Khi mọi ghế
+còn AVAILABLE hoặc chỉ có hold đã hết hạn, checkout tiếp tục và cấp vé. Nếu ghế đã
+BOOKED hoặc có hold còn hiệu lực, không lấy ghế của giao dịch khác: Booking chuyển
+`EXCEPTION_PENDING_DECISION`, Payment ghi nhận `PAID` và audit event bền vững; Manager
+thấy đơn trong queue `GET /api/v1/reports/payment-exceptions`. Thiếu tồn kho, giá đổi,
+nhóm ghế lệch hoặc lỗi nghiệp vụ khác cũng vào queue mà không phát hành vé.
+`BOOKING_ALREADY_PAID` trả `"02"` nếu Payment đã PAID; `SEAT_UPDATE_CONFLICT`, lỗi DB
+tạm thời hoặc trường hợp không thể ghi nhận ngoại lệ trả `"99"` để VNPay gọi lại.
 
 ### Mã lỗi tạo Payment VNPay
 
@@ -560,7 +567,7 @@ Authorization: Bearer <staff-jwt>
         "paymentMethod": "CASH",
         "paymentStatus": "PAID",
         "ticketCount": 2,
-        "refundStatus": null
+        "refundStatus": "NONE"
       }
     ],
     "page": 0,
@@ -578,7 +585,8 @@ Authorization: Bearer <staff-jwt>
   `paidAt DESC, bookingId DESC`.
 - Chi tiết `GET /pos/bookings/{bookingId}` trả showtime/movie, ghế, Ticket, F&B,
   Payment, `performedBy`; Booking ONLINE hoặc không tồn tại trả 404
-  `BOOKING_NOT_FOUND`. `refundStatus` để sẵn cho Sprint F và hiện luôn `null`.
+  `BOOKING_NOT_FOUND`. `refundStatus` do bảng refund của Sprint F cung cấp:
+  `NONE`, `PARTIAL` hoặc `FULL`.
 
 ## Bảo mật
 

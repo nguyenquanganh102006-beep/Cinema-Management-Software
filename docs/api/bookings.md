@@ -17,7 +17,7 @@ Giá mỗi ghế vật lý:
 
 ```text
 finalPrice = showtimes.base_price
-           + ROOM_SURCHARGE(auditorium_type)
+           + ROOM_SURCHARGE(showtimes.auditorium_type_snapshot)
            + SEAT_SURCHARGE(seat_type)
            + TIME_SURCHARGE
 ```
@@ -129,6 +129,7 @@ Từ 23/11/2026, lỗi này có thêm `details: {"bookingId":"123"}` khi booking
 | 404 | `CONCESSION_ITEM_NOT_FOUND` | `itemId` không tồn tại |
 | 409 | `BOOKING_ALREADY_EXISTS` | Hold đã tạo Booking |
 | 409 | `SEAT_HOLD_EXPIRED` | Hold hết hạn hoặc đã bị release |
+| 409 | `SHOWTIME_UNAVAILABLE` | Phim hoặc phòng của suất đang ngừng hoạt động |
 | 409 | `SEAT_HOLD_MISMATCH` | Token không thuộc đúng suất/nhóm ghế |
 | 422 | `AGE_CONFIRMATION_REQUIRED` | CUSTOMER chưa xác nhận tuổi |
 | 422 | `CONCESSION_ITEM_INACTIVE` | Sản phẩm F&B đã ngừng bán |

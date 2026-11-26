@@ -39,6 +39,6 @@ export function CheckoutRecovery() {
   }, [result.data, dispatch, id, navigate, pos]);
   return <section><h2>Khôi phục thanh toán</h2><Feedback {...result} retry={result.refetch} />{!result.loading && !result.error && <>
     <p>{id ? "Đơn không còn phiên giữ ghế để tiếp tục. Kiểm tra trạng thái và vé trong lịch sử, hoặc chọn suất khác." : "Chọn suất chiếu và giữ ghế để tiếp tục."}</p>
-    <Link className="button" to={pos ? "/pos" : "/movies"}>Chọn suất chiếu</Link>{" · "}<Link to={pos ? "/transactions" : "/bookings"}>Xem lịch sử đặt vé</Link>
+    <div className="recovery-actions"><Link className="button" to={pos ? "/pos" : "/movies"}>Chọn suất chiếu</Link><Link to={pos ? "/transactions" : "/bookings"}>Xem lịch sử đặt vé</Link></div>
   </>}</section>;
 }

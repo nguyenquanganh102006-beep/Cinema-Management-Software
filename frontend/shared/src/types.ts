@@ -75,6 +75,7 @@ export interface Concession {
   price: number;
   active: boolean;
   combo: boolean;
+  imageUrl?: string;
   availableQuantity?: number;
   lowStock?: boolean;
   components?: { itemId: number; quantity: number }[];
@@ -146,6 +147,16 @@ export interface Refund {
   cashConfirmedAt: string;
   refundStatus: "NONE" | "PARTIAL" | "FULL";
 }
+export interface PaymentException {
+  bookingId: number;
+  bookingCode: string;
+  movieTitle: string;
+  auditoriumName: string;
+  showtimeStartsAt: string;
+  amount: number;
+  paidAt: string;
+  reasonCode: string;
+}
 export interface Eligibility {
   bookingId: number;
   bookingCode: string;
@@ -194,6 +205,10 @@ export interface Reports {
   breakdown: { period: ReportPeriod; ticketRevenue: number; concessionRevenue: number; ticketRefundAmount: number; netTicketRevenue: number; netRevenue: number };
   channels: { period: ReportPeriod; posRevenue: number; onlineRevenue: number; channels: { channel: string; grossRevenue: number; refundAmount: number; netRevenue: number }[] };
   count: { period: ReportPeriod; ticketCount: number; grossTicketCount: number; cancelledTicketCount: number };
+  timeSeries: { period: ReportPeriod; interval: "HOUR" | "DAY" | "WEEK" | "MONTH"; points: {
+    bucket: string; grossRevenue: number; refundAmount: number; netRevenue: number;
+    transactions: number; ticketCount: number; refunds: number;
+  }[] };
   occupancy: { period: ReportPeriod; seatsSold: number; totalSeats: number; occupancyRate: number; showtimes: { showtimeId: number; movieId: number; startsAt: string; seatsSold: number; totalSeats: number; occupancyRate: number }[] };
   alerts: (Inventory & { status: "LOW_STOCK" | "OUT_OF_STOCK" })[];
   ranking: { period: ReportPeriod; direction: "ASC" | "DESC"; movies: {

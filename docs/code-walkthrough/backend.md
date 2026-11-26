@@ -14,7 +14,7 @@
 | `entity/*` | Dữ liệu domain | Mapping và chuyển trạng thái | Entity lưu trong PostgreSQL |
 | `ErrorResponses` | Exception | Chuẩn hóa lỗi API | `{code, message, details}` khi áp dụng |
 
-Flyway quản lý schema qua V1–V8, Hibernate validate. Không sửa migration đã chia sẻ hoặc restore backup để chạy test. Integration tests nhận `DB_TEST_*` hoặc khởi tạo PostgreSQL qua Testcontainers.
+Flyway quản lý schema qua V1–V13, Hibernate validate. Không sửa migration đã chia sẻ hoặc restore backup để chạy test. Integration tests nhận `DB_TEST_*` hoặc khởi tạo PostgreSQL qua Testcontainers.
 
 ## 2. Auth và quản lý Staff
 
@@ -95,7 +95,7 @@ Tạo booking không giữ hoặc trừ stock F&B. Khi thanh toán, tồn kho v�
 | `createPayment` | bookingId, principal | Kiểm đơn online, tạo URL có chữ ký và expiresAt |
 | `readReturn` | Query VNPay | Xác thực chữ ký, chỉ đọc payment/booking; không finalize |
 | `handleIpn` | Query callback | Kiểm chữ ký, merchant, txnRef, amount, response/status; trả contract RspCode provider |
-| Finalize IPN | Callback đã kiểm | Ghi nhận tiền trước, finalize trong transaction riêng; nếu không giao được vé thì ghi EXCEPTION_PENDING_DECISION |
+| Finalize IPN | Callback đã kiểm | Ghi nhận tiền trước, finalize trong transaction riêng; nếu hold hết hạn thì khóa/recheck ghế và cấp vé nếu vẫn trống; nếu đã có giao dịch khác chiếm ghế hoặc checkout lỗi thì ghi EXCEPTION_PENDING_DECISION và audit event |
 
 Tách ghi nhận tiền và finalize bảo đảm không mất dấu tiền gateway đã nhận khi hold/stock không còn đáp ứng. IPN lặp có kiểm trạng thái/idempotency. Fixture test tự ký chỉ dùng secret môi trường test; production vẫn xác thực callback đầy đủ.
 
@@ -128,11 +128,13 @@ Tách ghi nhận tiền và finalize bảo đảm không mất dấu tiền gate
 | Bước | Input | Logic | Output |
 |---|---|---|---|
 | `eligibility` | Đúng một bookingCode/ticketCode | Đọc booking đã trả tiền và từng Ticket; VALID, còn ít nhất 30 phút | Mỗi vé: eligible/reasonCode/refundableAmount, vị trí ghế, serverTime |
-| `approve` | STAFF session, username/PIN Manager, scope, bookingId, ticketIds, reason, cashConfirmed | Kiểm Manager ACTIVE và PIN, kiểm selection/tiền, khóa dữ liệu cần thiết | Token 32 random byte → 64 hex, TTL 180s, amount |
-| `refund` | Token cùng booking/tập vé/lý do/tiền mặt/Staff session | Khóa approval; kiểm bind, quyền Manager/securityVersion, expiry và điều kiện hiện tại | RefundResponse và vé CANCELLED, ghế được release |
+| `approve` | STAFF session, username/PIN Manager, scope, bookingId, ticketIds, reason | Kiểm Manager ACTIVE và PIN, kiểm selection/tiền, khóa dữ liệu cần thiết | Token 32 random byte → 64 hex, TTL 180s, amount; chưa xác nhận cash |
+| `confirmCash` | STAFF session, overrideToken | Kiểm approval chưa hết hạn, Staff session và Manager ACTIVE/securityVersion; ghi cash_confirmed_at và audit | Timestamp cashConfirmedAt |
+| `refund` | Token cùng booking/tập vé/lý do và Staff session | Bắt buộc cash đã xác nhận; khóa approval, booking, ticket, inventory; transaction cancel/release/record/link/consume | RefundResponse, vé CANCELLED, ghế AVAILABLE |
 
-DB lưu hash token, không lưu raw token. Ticket IDs được sắp xếp để so sánh tập lựa chọn nhất quán. Nếu approval đã có refundId, cùng token/payload trả kết quả đã ghi, kể cả sau expiry; request khác nội dung/phiên bị từ chối. Refund chỉ tính priceSnapshot vé chọn, không hoàn F&B và không hồi tồn.
+DB lưu hash token, không lưu raw token. Ticket IDs được sắp xếp để so sánh tập lựa chọn nhất quán. Nếu approval đã có refundId, cùng token/payload trả kết quả đã ghi, kể cả sau expiry; request khác nội dung/phiên bị từ chối. Cash confirmation trong TTL cho phép thử lại refund transaction sau expiry; không cần giao tiền lần hai. Refund chỉ tính priceSnapshot vé chọn, không hoàn F&B hoặc hồi stock.
 
+`GET /reports/payment-exceptions` trả queue Manager cho PAID + EXCEPTION_PENDING_DECISION và lấy reasonCode từ audit event. Dashboard hiển thị queue, nhưng không tự quyết định đổi suất/hoàn tiền hoặc phát hành vé.
 ## 10. Lịch sử và báo cáo
 
 [CustomerBookingQueryService](../../backend/src/main/java/com/cinema/cms/service/CustomerBookingQueryService.java) trả lịch sử đúng customer; [PosBookingService](../../backend/src/main/java/com/cinema/cms/service/PosBookingService.java) trả POS history/detail với bộ lọc và paging. Detail ghép snapshot, ticket, payment và refund; không mở rộng POS history sang đơn online vì gate/refund có endpoint riêng.

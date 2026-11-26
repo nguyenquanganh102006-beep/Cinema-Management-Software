@@ -12,9 +12,14 @@ public final class ReportResponses {
     public record Channel(String channel,BigDecimal grossRevenue,BigDecimal refundAmount,BigDecimal netRevenue) {}
     public record ByChannel(Period period,BigDecimal posRevenue,BigDecimal onlineRevenue,List<Channel> channels) {}
     public record TicketCount(Period period,long ticketCount,long grossTicketCount,long cancelledTicketCount) {}
+    public record TimeSeries(Period period,String interval,List<TimeSeriesPoint> points) {}
+    public record TimeSeriesPoint(LocalDateTime bucket,BigDecimal grossRevenue,BigDecimal refundAmount,
+        BigDecimal netRevenue,long transactions,long ticketCount,long refunds) {}
     public record OccupancyLine(Long showtimeId,Long movieId,Instant startsAt,long seatsSold,long totalSeats,BigDecimal occupancyRate) {}
     public record Occupancy(Period period,long seatsSold,long totalSeats,BigDecimal occupancyRate,List<OccupancyLine> showtimes) {}
     public record MovieLine(Long movieId,String title,long ticketCount,BigDecimal totalRevenue,BigDecimal refundAmount,BigDecimal revenue) {}
     public record Ranking(Period period,String direction,List<MovieLine> movies) {}
     public record InventoryAlert(Integer itemId,String itemName,int stockQuantity,int lowStockThreshold,String status) {}
+    public record PaymentException(Long bookingId,String bookingCode,String movieTitle,String auditoriumName,
+        Instant showtimeStartsAt,BigDecimal amount,Instant paidAt,String reasonCode) {}
 }

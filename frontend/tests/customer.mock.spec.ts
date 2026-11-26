@@ -35,11 +35,11 @@ for (const width of [360, 768, 1280])
       await page.getByRole("link", { name: "Chuyến tàu ánh sáng" }).click();
       await page.getByRole("button", { name: "Chọn suất" }).click();
       await expect(
-        page.getByRole("button", { name: "B5 · SWEETBOX · Trống" }),
+        page.getByRole("button", { name: "B5, SWEETBOX, Trống" }),
       ).toBeVisible();
-      await page.getByRole("button", { name: "B5 · SWEETBOX · Trống" }).click();
+      await page.getByRole("button", { name: "B5, SWEETBOX, Trống" }).click();
       await expect(
-        page.getByRole("button", { name: "B6 · SWEETBOX · Đã chọn" }),
+        page.getByRole("button", { name: "B6, SWEETBOX, Đã chọn" }),
       ).toHaveAttribute("aria-pressed", "true");
       expect(
         await page.evaluate(

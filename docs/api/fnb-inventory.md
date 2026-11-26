@@ -1,5 +1,7 @@
 # F&B catalog và Inventory API
 
+Phản hồi danh mục có thể kèm trường imageUrl với đường dẫn ảnh minh họa được lưu cùng backend. Customer xếp combo trước món lẻ; availableQuantity vẫn được tính từ tồn kho thành phần trong DB.
+
 Đường dẫn gốc `/api/v1`. Món lẻ có tồn kho riêng. Combo gồm nhiều món lẻ và **không có tồn kho riêng**.
 
 ## Danh mục món và combo (`/concessions`)
@@ -34,7 +36,7 @@ Quy tắc:
 | GET | `/inventory?keyword=&status=&page=&size=` | MANAGER | Tồn kho các món lẻ. `status`: `IN_STOCK`, `LOW_STOCK`, `OUT_OF_STOCK` |
 | GET | `/inventory/alerts` | MANAGER, STAFF | Món đang bán có tồn kho **bằng hoặc thấp hơn** ngưỡng cảnh báo, ít hàng nhất trước |
 | POST | `/inventory/{itemId}/restocks` | MANAGER | Nhập hàng. Trả 201 |
-| GET | `/inventory/restocks?itemId=&managerId=&from=&to=&page=&size=` | MANAGER | Lịch sử nhập kho toàn hệ thống, mới nhất trước. `from`, `to` theo ISO-8601, ví dụ `2026-11-01T00:00:00Z` |
+| GET | `/inventory/restocks?itemId=&managerId=&from=&to=&page=&size=` | MANAGER | Lịch sử nhập kho toàn hệ thống, mới nhất trước. `from`, `to` theo ISO-8601; khi lọc theo ngày nghiệp vụ Việt Nam dùng offset `+07:00`, ví dụ `2026-11-01T00:00:00+07:00` |
 | GET | `/inventory/{itemId}/history` | MANAGER | Lịch sử biến động của một món |
 
 Tình trạng: `OUT_OF_STOCK` khi tồn bằng 0, `LOW_STOCK` khi tồn lớn hơn 0 và không vượt ngưỡng, còn lại là `IN_STOCK`.

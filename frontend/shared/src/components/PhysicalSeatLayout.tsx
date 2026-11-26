@@ -7,7 +7,7 @@ export function PhysicalSeatLayout({ seats, onEdit }: { seats: Seat[]; onEdit: (
     const count = Math.max(...members.map((s) => s.number));
     return <div className="seat-row" key={row}><strong>{row}</strong>{Array.from({ length: count }, (_, i) => {
       const seat = byNumber.get(i + 1);
-      return seat ? <button key={i} className={`seat physical ${seat.seatType.toLowerCase()}`} aria-label={`Sửa ghế ${row}${seat.number} · ${seat.seatType}${seat.pairSeatId ? " · Đã ghép cặp" : ""}`} onClick={() => onEdit(seat)}>{seat.number}{seat.seatType === "VIP" ? "★" : seat.seatType === "SWEETBOX" ? "♥" : ""}</button> : <span className="seat-gap" key={i} aria-hidden="true" />;
+      return seat ? <button key={i} className={`seat physical ${seat.seatType.toLowerCase()}`} aria-label={`Sửa ghế ${row}${seat.number}, ${seat.seatType}${seat.pairSeatId ? ", Đã ghép cặp" : ""}`} onClick={() => onEdit(seat)}>{seat.number}{seat.seatType === "VIP" ? "★" : seat.seatType === "SWEETBOX" ? "♥" : ""}</button> : <span className="seat-gap" key={i} aria-hidden="true" />;
     })}</div>;
-  })}</div><p className="muted">Ghế vật lý · Thường · ★ VIP · ♥ Sweetbox. Chọn ghế để sửa vị trí hoặc loại; trạng thái bán vé thuộc từng suất.</p></section>;
+  })}</div><p className="muted">Ghế vật lý gồm ghế thường, ghế VIP và Sweetbox. Chọn ghế để sửa vị trí hoặc loại; trạng thái bán vé thuộc từng suất.</p></section>;
 }

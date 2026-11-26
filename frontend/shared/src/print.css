@@ -25,4 +25,20 @@
     width: 40mm;
     height: 40mm;
   }
+  body.printing-refund * {
+    visibility: hidden !important;
+  }
+  body.printing-refund .refund-receipt,
+  body.printing-refund .refund-receipt * {
+    visibility: visible !important;
+  }
+  body.printing-refund .refund-receipt {
+    position: absolute;
+    inset: 0 auto auto 0;
+    display: block !important;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+  }
 }

@@ -1,13 +1,14 @@
 # Code walkthrough: Cinema Management Software
 
-Ngày đối chiếu source: 23/11/2026. Tài liệu mô tả working tree đang triển khai theo [plan G5](../../tasks/plan.md), gồm cả phần chưa commit. Đây là bản đồ đọc code và contract input/output; trạng thái nghiệm thu được ghi riêng trong [todo](../../tasks/todo.md) và [hướng dẫn kiểm thử](../testing/frontend.md).
+Ngày đối chiếu source: 25/11/2026. Tài liệu mô tả working tree trên `feature/frontend`, gồm cả phần chưa commit. Đây là bản đồ đọc code và contract input/output; trạng thái nghiệm thu được ghi trong [checkpoint G5](../testing/g5-validation-2026-11-23.md) và [hướng dẫn kiểm thử](../testing/frontend.md).
 
 ## Thứ tự đọc
 
 1. [Frontend: khởi động, dữ liệu và từng màn hình](frontend.md).
 2. [Backend: nghiệp vụ, transaction và API](backend.md).
 3. [API contracts](../ui-ux/frontend-contracts.md) để xem các trường frontend dùng.
-4. [Audit 27 màn](../../tasks/frontend-audit.md) để đối chiếu C01–C09, S01–S09, M01–M09.
+4. [Audit 27 màn](../testing/g5-validation-2026-11-23.md) để đối chiếu C01–C09, S01–S09, M01–M09.
+5. [Drive alignment hardening](../decisions/008-drive-alignment-hardening.md) for current saleability, snapshots, audit and VietQR behavior.
 
 ## Đường đi của một thao tác
 

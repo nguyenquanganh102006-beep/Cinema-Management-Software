@@ -25,9 +25,10 @@ public class InventoryService {
     private final ConcessionItemRepository items;
     private final InventoryTransactionRepository transactions;
     private final UserRepository users;
+    private final AuditEventService auditEvents;
 
-    public InventoryService(ConcessionInventoryRepository inventory, ConcessionItemRepository items, InventoryTransactionRepository transactions, UserRepository users) {
-        this.inventory = inventory; this.items = items; this.transactions = transactions; this.users = users;
+    public InventoryService(ConcessionInventoryRepository inventory, ConcessionItemRepository items, InventoryTransactionRepository transactions, UserRepository users, AuditEventService auditEvents) {
+        this.inventory = inventory; this.items = items; this.transactions = transactions; this.users = users; this.auditEvents = auditEvents;
     }
 
     @Transactional(readOnly = true)
@@ -66,6 +67,9 @@ public class InventoryService {
         stock.setStockQuantity((int) after);
         InventoryTransaction saved = transactions.saveAndFlush(InventoryTransaction.restock(itemId, quantity, before, (int) after, managerId, r.note()));
         inventory.saveAndFlush(stock);
+        auditEvents.record(managerId, "INVENTORY_RESTOCKED", "SUCCESS", "CONCESSION_ITEM", itemId,
+                "quantity=" + quantity + "; stock=" + before + "->" + after
+                        + "; transactionId=" + saved.getId());
         return InventoryMovementResponse.from(saved, stock.getItem().getName(), managerName(managerId));
     }
 

@@ -38,6 +38,7 @@ public class TicketService {
     private final AuditoriumRepository auditoriums;
     private final AgeVerificationRepository ageVerifications;
     private final Clock clock;
+    private final AuditEventService auditEvents;
 
     public TicketService(
             TicketRepository tickets,
@@ -48,7 +49,8 @@ public class TicketService {
             SeatRepository seats,
             AuditoriumRepository auditoriums,
             AgeVerificationRepository ageVerifications,
-            Clock clock) {
+            Clock clock,
+            AuditEventService auditEvents) {
         this.tickets = tickets;
         this.bookings = bookings;
         this.showtimeSeats = showtimeSeats;
@@ -58,6 +60,7 @@ public class TicketService {
         this.auditoriums = auditoriums;
         this.ageVerifications = ageVerifications;
         this.clock = clock;
+        this.auditEvents = auditEvents;
     }
 
     @Transactional(readOnly = true)
@@ -113,8 +116,6 @@ public class TicketService {
                 showtimes.findById(showtimeSeat.getShowtimeId()).orElseThrow(TicketService::ticketNotFound);
         if (!showtime.getId().equals(request.showtimeId()))
             throw new ApiException(422, "TICKET_WRONG_SHOWTIME", "Vé không thuộc suất chiếu tại cửa");
-        Movie movie =
-                movies.findById(showtime.getMovieId()).orElseThrow(TicketService::ticketNotFound);
         Seat seat = seats.findById(showtimeSeat.getSeatId()).orElseThrow(TicketService::ticketNotFound);
 
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
@@ -122,14 +123,14 @@ public class TicketService {
         Instant closesAt = showtime.getEndTime().plusSeconds(GATE_CLOSES_AFTER_MINUTES * 60L);
         if (now.isBefore(opensAt) || now.isAfter(closesAt)) throw outsideShowtime();
 
-        if (movie.getAgeRating() != AgeRating.P
+        if (showtime.getAgeRatingSnapshot() != AgeRating.P
                 && !Boolean.TRUE.equals(request.ageDocumentChecked())) {
             throw ageVerificationRequired();
         }
 
         ticket.markUsed(now);
         tickets.saveAndFlush(ticket);
-        if (movie.getAgeRating() != AgeRating.P) {
+        if (showtime.getAgeRatingSnapshot() != AgeRating.P) {
             ageVerifications.save(
                     AgeVerification.gate(ticket.getId(), principal.userId(), clock));
         }
@@ -142,7 +143,10 @@ public class TicketService {
                 ticket.getBookingId(),
                 showtime.getId(),
                 principal.userId(),
-                movie.getAgeRating());
+                showtime.getAgeRatingSnapshot());
+        auditEvents.record(principal.userId(), "TICKET_GATE_VALIDATED", "SUCCESS", "TICKET", ticket.getId(),
+                "bookingId=" + ticket.getBookingId() + "; showtimeId=" + showtime.getId()
+                        + "; ageRating=" + showtime.getAgeRatingSnapshot());
         return new TicketValidationResponse(
                 ticket.getId(),
                 ticket.getTicketCode(),
@@ -152,9 +156,9 @@ public class TicketService {
                         .map(Booking::getBookingCode)
                         .orElse(null),
                 showtime.getId(),
-                movie.getId(),
-                movie.getTitle(),
-                movie.getAgeRating(),
+                showtime.getMovieId(),
+                showtime.getMovieTitleSnapshot(),
+                showtime.getAgeRatingSnapshot(),
                 seat.getId(),
                 seat.getSeatRow(),
                 seat.getSeatNumber(),
@@ -166,11 +170,7 @@ public class TicketService {
             Booking booking,
             Showtime showtime,
             ShowtimeSeat showtimeSeat) {
-        Movie movie =
-                movies.findById(showtime.getMovieId()).orElseThrow(TicketService::ticketNotFound);
         Seat seat = seats.findById(showtimeSeat.getSeatId()).orElseThrow(TicketService::ticketNotFound);
-        Auditorium room =
-                auditoriums.findById(showtime.getAuditoriumId()).orElse(null);
         return new TicketResponse(
                 ticket.getId(),
                 ticket.getTicketCode(),
@@ -185,11 +185,11 @@ public class TicketService {
                 showtime.getId(),
                 offset(showtime.getStartTime()),
                 offset(showtime.getEndTime()),
-                movie.getId(),
-                movie.getTitle(),
-                movie.getAgeRating(),
+                showtime.getMovieId(),
+                showtime.getMovieTitleSnapshot(),
+                showtime.getAgeRatingSnapshot(),
                 showtime.getAuditoriumId(),
-                room == null ? null : room.getName(),
+                showtime.getAuditoriumNameSnapshot(),
                 seat.getId(),
                 seat.getSeatRow(),
                 seat.getSeatNumber(),

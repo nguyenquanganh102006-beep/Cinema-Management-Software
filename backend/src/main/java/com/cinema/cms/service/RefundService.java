@@ -27,12 +27,14 @@ public class RefundService {
     private final UserRepository users;
     private final PasswordEncoder encoder;
     private final Clock clock;
+    private final AuditEventService auditEvents;
     private final SecureRandom random=new SecureRandom();
     public RefundService(RefundRepository refunds, BookingRepository bookings, TicketRepository tickets,
         PaymentRepository payments, ShowtimeRepository showtimes, ShowtimeSeatRepository inventory,
-        SeatRepository seats, UserRepository users, PasswordEncoder encoder, Clock clock) {
+        SeatRepository seats, UserRepository users, PasswordEncoder encoder, Clock clock,
+        AuditEventService auditEvents) {
         this.refunds=refunds;this.bookings=bookings;this.tickets=tickets;this.payments=payments;
-        this.showtimes=showtimes;this.inventory=inventory;this.seats=seats;this.users=users;this.encoder=encoder;this.clock=clock;
+        this.showtimes=showtimes;this.inventory=inventory;this.seats=seats;this.users=users;this.encoder=encoder;this.clock=clock;this.auditEvents=auditEvents;
     }
 
     @Transactional(readOnly=true)
@@ -60,12 +62,14 @@ public class RefundService {
         requireActor(actor,false);
         if (request==null||!"REFUND_APPROVAL".equals(request.scope())||request.username()==null||request.pin()==null||!request.pin().matches("[0-9]{6,12}"))
             throw invalid("Invalid approval request");
-        List<Long> ids=selection(request.bookingId(),request.ticketIds(),request.reason(),request.cashConfirmed());
+        List<Long> ids=selection(request.bookingId(),request.ticketIds(),request.reason());
         inventory.configureLockTimeout();
         String username=request.username().strip().toLowerCase(Locale.ROOT);
-        User manager=users.lockManagerByUsername(username).orElseThrow(RefundService::badPin);
-        if (manager.getRole()!=UserRole.MANAGER||manager.getStatus()!=AccountStatus.ACTIVE||!manager.matchesManagerPin(request.pin(),encoder)) {
+        User manager=users.lockManagerByUsername(username).orElse(null);
+        if (manager == null || manager.getRole()!=UserRole.MANAGER||manager.getStatus()!=AccountStatus.ACTIVE||!manager.matchesManagerPin(request.pin(),encoder)) {
             audit.info("action=REFUND_APPROVAL result=DENIED staffId={}",actor.userId());
+            auditEvents.recordIndependent(actor.userId(), "MANAGER_OVERRIDE", "REJECTED", "BOOKING",
+                    request.bookingId(), "reason=INVALID_MANAGER_CREDENTIALS");
             throw badPin();
         }
         Booking booking=bookings.findByIdForUpdate(request.bookingId()).orElseThrow(RefundService::notFound);
@@ -75,9 +79,41 @@ public class RefundService {
         String token=HexFormat.of().formatHex(bytes);
         Instant now=clock.instant(), expires=now.plusSeconds(180);
         refunds.approve(new ManagerOverride(hash(token),actor.userId(),actor.tokenId(),manager.getId(),manager.getSecurityVersion(),
-            booking.getId(),ids,request.reason().strip(),amount,now,expires,null));
+            booking.getId(),ids,request.reason().strip(),amount,null,expires,null));
         audit.info("action=REFUND_APPROVAL result=APPROVED bookingId={} managerId={} staffId={}",booking.getId(),manager.getId(),actor.userId());
+        auditEvents.record(actor.userId(), "MANAGER_OVERRIDE", "APPROVED", "BOOKING", booking.getId(),
+                "managerId=" + manager.getId() + "; amount=" + amount + "; ticketIds=" + ids);
         return new ManagerOverrideResponse(token,expires,amount);
+    }
+
+    @Transactional(isolation=Isolation.READ_COMMITTED)
+    public ManagerCashConfirmationResponse confirmCash(ManagerCashConfirmationRequest request, SessionPrincipal actor) {
+        requireActor(actor,false);
+        if (request==null||request.overrideToken()==null||!request.overrideToken().matches("[a-f0-9]{64}"))
+            throw new ApiException(403,"MANAGER_OVERRIDE_REQUIRED","A valid manager approval is required");
+        inventory.configureLockTimeout();
+        ManagerOverride approval=refunds.lockApproval(hash(request.overrideToken())).orElseThrow(() ->
+            new ApiException(403,"MANAGER_OVERRIDE_REQUIRED","Manager approval was not found"));
+        verifyStaffSession(approval, actor);
+        if (approval.refundId()!=null)
+            return new ManagerCashConfirmationResponse(approval.cashConfirmedAt());
+        if (approval.cashConfirmedAt()!=null)
+            return new ManagerCashConfirmationResponse(approval.cashConfirmedAt());
+        Instant now=clock.instant();
+        if (!now.isBefore(approval.expiresAt()))
+            throw new ApiException(403,"MANAGER_OVERRIDE_EXPIRED","Manager approval has expired");
+        verifyManagerCurrent(approval);
+        Booking booking=bookings.findByIdForUpdate(approval.bookingId()).orElseThrow(RefundService::notFound);
+        List<Ticket> selected=tickets.lockByIds(approval.ticketIds());
+        BigDecimal amount=check(booking,selected,approval.ticketIds(),now);
+        if (amount.compareTo(approval.approvedAmount())!=0)
+            throw new ApiException(409,"MANAGER_OVERRIDE_MISMATCH","Approved amount changed");
+        Instant confirmedAt=refunds.confirmCash(approval.tokenHash(),now);
+        audit.info("action=REFUND_CASH_HANDOVER result=CONFIRMED bookingId={} managerId={} staffId={} amount={}",
+            booking.getId(),approval.managerId(),actor.userId(),amount);
+        auditEvents.record(approval.managerId(), "MANAGER_OVERRIDE", "CASH_CONFIRMED", "BOOKING", booking.getId(),
+                "managerId=" + approval.managerId() + "; amount=" + amount + "; ticketIds=" + approval.ticketIds());
+        return new ManagerCashConfirmationResponse(confirmedAt);
     }
 
     @Transactional(isolation=Isolation.READ_COMMITTED)
@@ -85,14 +121,18 @@ public class RefundService {
         requireActor(actor,false);
         if (request==null||request.overrideToken()==null||!request.overrideToken().matches("[a-f0-9]{64}"))
             throw new ApiException(403,"MANAGER_OVERRIDE_REQUIRED","A valid manager approval is required");
-        List<Long> ids=selection(request.bookingId(),request.ticketIds(),request.reason(),request.cashConfirmed());
+        List<Long> ids=selection(request.bookingId(),request.ticketIds(),request.reason());
         inventory.configureLockTimeout();
         ManagerOverride a=refunds.lockApproval(hash(request.overrideToken())).orElseThrow(() ->
             new ApiException(403,"MANAGER_OVERRIDE_REQUIRED","Manager approval was not found"));
-        if (!a.staffId().equals(actor.userId())||!a.staffTokenId().equals(actor.tokenId())||!a.bookingId().equals(request.bookingId())
-            ||!a.ticketIds().equals(ids)||!a.reason().equals(request.reason().strip()))
+        verifyStaffSession(a, actor);
+        if (!a.bookingId().equals(request.bookingId())||!a.ticketIds().equals(ids)||!a.reason().equals(request.reason().strip()))
             throw new ApiException(403,"MANAGER_OVERRIDE_MISMATCH","Approval does not match this session and refund");
         if (a.refundId()!=null) return refunds.response(a.refundId()); // durable idempotent readback, even after expiry
+        if (a.cashConfirmedAt()==null && !clock.instant().isBefore(a.expiresAt()))
+            throw new ApiException(403,"MANAGER_OVERRIDE_EXPIRED","Manager approval has expired");
+        if (a.cashConfirmedAt()==null)
+            throw new ApiException(409,"REFUND_CASH_NOT_CONFIRMED","Manager must confirm cash handover before refund commit");
         Booking booking=bookings.findByIdForUpdate(a.bookingId()).orElseThrow(RefundService::notFound);
         List<Ticket> selected=tickets.lockByIds(ids);
         check(booking,selected,ids,clock.instant());
@@ -102,10 +142,12 @@ public class RefundService {
         Set<Long> expected=new HashSet<>(selected.stream().map(Ticket::getShowtimeSeatId).toList());
         if (locked.size()!=expected.size()||locked.stream().anyMatch(s -> !expected.contains(s.getId())||s.getStatus()!=SeatStatus.BOOKED))
             throw new ApiException(409,"REFUND_NOT_ELIGIBLE","Seat inventory no longer matches the tickets");
+        if (!a.cashConfirmedAt().isBefore(a.expiresAt()))
+            throw new ApiException(403,"MANAGER_OVERRIDE_EXPIRED","Cash confirmation was made after approval expired");
+        // The authenticated Manager already confirmed the physical handover before this
+        // transaction. Retrying the database commit must not depend on the PIN session or the
+        // short-lived approval window remaining active.
         Instant now=clock.instant();
-        if (!now.isBefore(a.expiresAt())) throw new ApiException(403,"MANAGER_OVERRIDE_EXPIRED","Manager approval has expired");
-        User manager=users.lockApprovalManager(a.managerId()).orElseThrow(RefundService::badPin);
-        if (manager.getRole()!=UserRole.MANAGER||manager.getStatus()!=AccountStatus.ACTIVE||manager.getSecurityVersion()!=a.managerSecurityVersion()) throw badPin();
         BigDecimal amount=check(booking,selected,ids,now);
         if (amount.compareTo(a.approvedAmount())!=0) throw new ApiException(409,"MANAGER_OVERRIDE_MISMATCH","Approved amount changed");
         selected.forEach(Ticket::cancel);
@@ -116,6 +158,9 @@ public class RefundService {
         selected.forEach(t -> refunds.link(id,t.getId(),t.getPriceSnapshot()));
         refunds.consume(a.tokenHash(),id,now);
         audit.info("action=REFUND result=COMPLETED refundId={} bookingId={} managerId={} staffId={} amount={}",id,booking.getId(),a.managerId(),actor.userId(),amount);
+        auditEvents.record(actor.userId(), "REFUND_COMPLETED", "SUCCESS", "REFUND", id,
+                "bookingId=" + booking.getId() + "; managerId=" + a.managerId()
+                        + "; amount=" + amount + "; ticketIds=" + ids);
         return refunds.response(id);
     }
 
@@ -141,11 +186,20 @@ public class RefundService {
         if (now.isAfter(s.getStartTime().minusSeconds(1800))) return "REFUND_DEADLINE_PASSED";
         return null;
     }
-    private static List<Long> selection(Long bookingId,List<Long> ids,String reason,Boolean cash) {
+    private static List<Long> selection(Long bookingId,List<Long> ids,String reason) {
         if (bookingId==null||bookingId<=0||ids==null||ids.isEmpty()||ids.size()>200||ids.stream().anyMatch(i -> i==null||i<=0)
-            ||new HashSet<>(ids).size()!=ids.size()||reason==null||reason.isBlank()||reason.length()>255||!Boolean.TRUE.equals(cash))
-            throw invalid("Positive unique ticket IDs, reason and cash confirmation are required");
+            ||new HashSet<>(ids).size()!=ids.size()||reason==null||reason.isBlank()||reason.length()>255)
+            throw invalid("Positive unique ticket IDs and reason are required");
         return ids.stream().sorted().toList();
+    }
+    private static void verifyStaffSession(ManagerOverride approval, SessionPrincipal actor) {
+        if (!approval.staffId().equals(actor.userId())||!approval.staffTokenId().equals(actor.tokenId()))
+            throw new ApiException(403,"MANAGER_OVERRIDE_MISMATCH","Approval does not match this staff session");
+    }
+    private void verifyManagerCurrent(ManagerOverride approval) {
+        User manager=users.lockApprovalManager(approval.managerId()).orElseThrow(RefundService::badPin);
+        if (manager.getRole()!=UserRole.MANAGER||manager.getStatus()!=AccountStatus.ACTIVE
+                ||manager.getSecurityVersion()!=approval.managerSecurityVersion()) throw badPin();
     }
     private static void requireActor(SessionPrincipal p,boolean allowManager) {
         if (p==null||p.userId()==null||p.tokenId()==null||!(p.role()==UserRole.STAFF||allowManager&&p.role()==UserRole.MANAGER))

@@ -127,15 +127,15 @@ class MovieIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MOVIE_NOT_FOUND"));
     }
 
-    @Test void deactivatedMovieIsHiddenFromNonManagers() throws Exception {
+    @Test void deactivatedMovieRemainsVisibleToCustomersAsEndedCatalogItem() throws Exception {
         String manager = tokenFor(UserRole.MANAGER), customer = tokenFor(UserRole.CUSTOMER);
         String key = unique();
         long id = createMovie(manager, body("Hidden " + key));
         send(patch("/api/v1/movies/" + id + "/status"), manager, Map.of("active", false)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.active").value(false));
-        send(get("/api/v1/movies/" + id), customer, null).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("MOVIE_NOT_FOUND"));
-        send(get("/api/v1/movies").param("keyword", key), customer, null).andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(0));
-        send(get("/api/v1/movies").param("keyword", key).param("active", "false"), customer, null).andExpect(jsonPath("$.data.totalElements").value(0)); // khách không tự bỏ lọc được
+        send(get("/api/v1/movies/" + id), customer, null).andExpect(status().isOk()).andExpect(jsonPath("$.data.active").value(false));
+        send(get("/api/v1/movies").param("keyword", key), customer, null).andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(1));
+        send(get("/api/v1/movies").param("keyword", key).param("active", "false"), customer, null).andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(1));
         send(get("/api/v1/movies/" + id), manager, null).andExpect(status().isOk()).andExpect(jsonPath("$.data.active").value(false));
         send(get("/api/v1/movies").param("keyword", key).param("active", "false"), manager, null).andExpect(jsonPath("$.data.totalElements").value(1));
         send(patch("/api/v1/movies/" + id + "/status"), manager, Map.of("active", true)).andExpect(status().isOk());

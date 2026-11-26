@@ -4,9 +4,11 @@ import com.cinema.cms.dto.ReportResponses.*;
 import com.cinema.cms.dto.ReportResponses.Period;
 import com.cinema.cms.repository.ReportingRepository;
 import com.cinema.cms.repository.ReportingRepository.Sales;
+import com.cinema.cms.dto.ReportResponses.PaymentException;
 import java.math.BigDecimal;
 import java.time.*;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -40,6 +42,14 @@ public class ReportingService {
         long active=rows.stream().mapToLong(Sales::activeCount).sum(),gross=rows.stream().mapToLong(Sales::grossCount).sum();
         return new TicketCount(p,active,gross,gross-active);
     }
+    public TimeSeries timeSeries(String from,String to) {
+        Period p=period(from,to,"TRANSACTION_DATE");
+        long days=ChronoUnit.DAYS.between(p.from(),p.to())+1;
+        if (days>366) throw invalid();
+        String interval=days==1?"HOUR":days<=45?"DAY":days<=180?"WEEK":"MONTH";
+        return new TimeSeries(p,interval,reports.timeSeries(p.from(),p.to(),interval,
+            p.timezone(),start(p),end(p)));
+    }
     public Occupancy occupancy(String from,String to) {
         Period p=period(from,to,"SHOWTIME_START");List<OccupancyLine> lines=reports.occupancy(start(p),end(p));
         long sold=lines.stream().mapToLong(OccupancyLine::seatsSold).sum(),total=lines.stream().mapToLong(OccupancyLine::totalSeats).sum();
@@ -47,6 +57,10 @@ public class ReportingService {
     }
     public List<InventoryAlert> alerts() {
         return inventory.alerts().stream().map(i -> new InventoryAlert(i.itemId(),i.name(),i.stockQuantity(),i.lowStockThreshold(),i.status().name())).toList();
+    }
+    public List<PaymentException> paymentExceptions(int limit) {
+        if (limit<1||limit>100) throw invalid();
+        return reports.paymentExceptions(limit);
     }
     public Ranking ranking(String from,String to,String direction,int limit) {
         if (!("ASC".equalsIgnoreCase(direction)||"DESC".equalsIgnoreCase(direction))||limit<1||limit>100) throw invalid();

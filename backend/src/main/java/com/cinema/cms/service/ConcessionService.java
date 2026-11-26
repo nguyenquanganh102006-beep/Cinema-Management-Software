@@ -138,7 +138,7 @@ public class ConcessionService {
                 low = row == null || quantity <= row.getLowStockThreshold();
             }
         }
-        return new ConcessionResponse(base.id(), base.name(), base.price(), base.combo(), base.active(), base.components(), quantity, low);
+        return new ConcessionResponse(base.id(), base.name(), base.price(), base.combo(), base.active(), base.imageUrl(), base.components(), quantity, low);
     }
 
     private ConcessionItem lockSimple(Integer id) {
@@ -177,7 +177,8 @@ public class ConcessionService {
     }
     private static RuntimeException translate(DataIntegrityViolationException e) {
         String detail = e.getMostSpecificCause().getMessage();
-        return detail != null && detail.contains("concession_items_name_key") ? nameTaken() : e;
+        return detail != null && (detail.contains("concession_items_name_key")
+                || detail.contains("uq_concession_items_name_ci")) ? nameTaken() : e;
     }
     private static ApiException nameTaken() { return new ApiException(409, "CONCESSION_NAME_EXISTS", "Tên món hoặc combo đã tồn tại"); }
     private static ApiException invalidCombo(String message) { return new ApiException(400, "CONCESSION_COMBO_INVALID", message); }

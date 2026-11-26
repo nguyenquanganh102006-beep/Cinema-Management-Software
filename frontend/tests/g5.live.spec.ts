@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createHmac } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-const base = "http://localhost:8080/api/v1";
+const base = "http://localhost:8081/api/v1";
 const password = process.env.DEMO_PASSWORD;
 const imageRoot = "../docs/testing/screenshots/g5";
 const captures: string[] = [];
@@ -71,12 +71,12 @@ test("G5 live: partial refund, gate, cash/VietQR, signed online payment, reload 
   await login(staffPage, "staff", "S01");
   await expect(staffPage.getByRole("combobox", { name: "Phim", exact: true })).toBeVisible(); await staffPage.getByRole("combobox", { name: "Phim", exact: true }).selectOption(String(movie.id)); await shot(staffPage, "S02");
   await staffPage.getByRole("button", { name: "Chọn suất", exact: true }).click();
-  await staffPage.getByRole("button", { name: "A1 · STANDARD · Trống", exact: true }).click();
-  await staffPage.getByRole("button", { name: "A2 · STANDARD · Trống", exact: true }).click();
+  await staffPage.getByRole("button", { name: "A1, STANDARD, Trống", exact: true }).click();
+  await staffPage.getByRole("button", { name: "A2, STANDARD, Trống", exact: true }).click();
   await staffPage.getByLabel(`Số lượng ${snack.name}`).fill("1"); await shot(staffPage, "S03");
   await staffPage.getByRole("button", { name: "Giữ các ghế đã chọn" }).click();
   await staffPage.getByRole("link", { name: "Tiếp tục thanh toán" }).click();
-  await staffPage.getByRole("button", { name: "Tạo đơn · lấy tổng thanh toán" }).click();
+  await staffPage.getByRole("button", { name: "Tạo đơn, lấy tổng thanh toán" }).click();
   await expect(staffPage.getByLabel("Tiền khách đưa")).toBeVisible(); await shot(staffPage, "S04");
   const bookingId = Number(new URL(staffPage.url()).searchParams.get("booking")); expect(bookingId).toBeGreaterThan(0);
   // Reload requires authentication but restores only a public booking ID; hold token is fetched afresh.
@@ -104,8 +104,8 @@ test("G5 live: partial refund, gate, cash/VietQR, signed online payment, reload 
   // Online purchase: a signed test callback exercises the unchanged production verifier.
   await customerPage.goto("http://localhost:3003/"); await shot(customerPage, "C01"); await customerPage.getByRole("button", { name: "Đăng ký", exact: true }).click(); await shot(customerPage, "C02");
   await login(customerPage, "customer"); await customerPage.getByLabel("Tìm phim").fill(movie.title); await shot(customerPage, "C03"); await customerPage.getByRole("link", { name: movie.title, exact: true }).click(); await shot(customerPage, "C04");
-  await customerPage.getByRole("button", { name: "Chọn suất", exact: true }).click(); await customerPage.getByRole("button", { name: "B1 · SWEETBOX · Trống", exact: true }).click(); await expect(customerPage.getByRole("button", { name: "B2 · SWEETBOX · Đã chọn" })).toHaveAttribute("aria-pressed", "true"); await customerPage.getByLabel(`Số lượng ${snack.name}`).fill("1"); await shot(customerPage, "C05");
-  await customerPage.getByRole("button", { name: "Giữ các ghế đã chọn" }).click(); await customerPage.getByRole("link", { name: "Tiếp tục thanh toán" }).click(); await customerPage.getByRole("button", { name: "Tạo đơn · lấy tổng thanh toán" }).click(); await shot(customerPage, "C06");
+  await customerPage.getByRole("button", { name: "Chọn suất", exact: true }).click(); await customerPage.getByRole("button", { name: "B1, SWEETBOX, Trống", exact: true }).click(); await expect(customerPage.getByRole("button", { name: "B2, SWEETBOX, Đã chọn" })).toHaveAttribute("aria-pressed", "true"); await customerPage.getByLabel(`Số lượng ${snack.name}`).fill("1"); await shot(customerPage, "C05");
+  await customerPage.getByRole("button", { name: "Giữ các ghế đã chọn" }).click(); await customerPage.getByRole("link", { name: "Tiếp tục thanh toán" }).click(); await customerPage.getByRole("button", { name: "Tạo đơn, lấy tổng thanh toán" }).click(); await shot(customerPage, "C06");
   await customerPage.getByRole("button", { name: "Tạo liên kết VNPay" }).click(); const paymentLink = customerPage.getByRole("link", { name: "Mở VNPay", exact: true }); await expect(paymentLink).toBeVisible();
   const payUrl = new URL((await paymentLink.getAttribute("href"))!); const onlineId = Number(new URL(customerPage.url()).searchParams.get("booking"));
   await expect(customerPage.locator("article.ticket")).toHaveCount(0);

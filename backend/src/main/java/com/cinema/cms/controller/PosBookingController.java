@@ -92,8 +92,9 @@ public class PosBookingController {
             description =
                     "Role: STAFF. Returns showtime/movie, seats, tickets, F&B lines with price"
                             + " snapshots, totals, staff and paidAt. It never returns PIN, JWT,"
-                            + " hold token or payment secrets; refundStatus is NONE, PARTIAL or FULL"
-                            + " and is currently null.")
+                            + " hold token or payment secrets; refundStatus is NONE, PARTIAL or FULL."
+                            + " The detail endpoint can read a pending POS booking by its id;"
+                            + " the history list contains paid bookings only.")
     public ApiResponse<PosBookingDetailResponse> detail(
             @PathVariable Long bookingId,
             @AuthenticationPrincipal SessionPrincipal principal) {

@@ -187,7 +187,7 @@ frontend/
 #### `frontend/shared/src/api.ts`
 | Lớp / Hàm | Input | Output | Kỹ thuật & Mô tả |
 | :--- | :--- | :--- | :--- |
-| `class ApiError` | `(status: number, code: string, message: string, details?: Record<string, string>)` | Thực thể `ApiError extends Error` | Lưu mã HTTP (`status`), mã lỗi nghiệp vụ từ backend (`code`, ví dụ `SEAT_NOT_AVAILABLE`, `SHOWTIME_OVERLAP`), thông điệp tiếng Việt (`message`) và chi tiết lỗi trường (`details`). |
+| `class ApiError` | `(status: number, code: string, message: string, details?: Record<string, string>)` | Thực thể `ApiError extends Error` | Lưu mã HTTP (`status`), mã lỗi nghiệp vụ từ backend (`code`, ví dụ `SEAT_NOT_AVAILABLE`, `SHOWTIME_CONFLICT`, `SHOWTIME_UNAVAILABLE`), thông điệp tiếng Việt (`message`) và chi tiết lỗi trường (`details`). |
 | `envelope<T>(path, options)` *(internal)* | `path: string`, `options: RequestOptions` (`{ method?, body?, token?, signal? }`) | `Promise<T>` | - Thiết lập `AbortController` kết hợp cả `options.signal` từ bên ngoài và bộ hẹn giờ **timeout 15.000ms**.<br>- Tự động đính kèm header `Authorization: Bearer <token>` và `Content-Type: application/json`, đặt `credentials: "omit"`.<br>- Nếu nhận HTTP `401` khi có `token`, phát sự kiện toàn cục `window.dispatchEvent(new Event("cinema:unauthorized"))` để `AuthProvider` tự động xóa phiên.<br>- Phân biệt rõ 3 loại lỗi hạ tầng: `AbortError` (hủy chủ động), `REQUEST_TIMEOUT` (quá 15s), và `NETWORK_ERROR` (mất kết nối). |
 | `request<T>(path, options)` | `path: string`, `options?: RequestOptions` | `Promise<T>` | Gọi `envelope<{ data: T }>(path, options)` và trích xuất trường `.data` theo chuẩn gói phản hồi `{ data: ... }` của Backend. |
 | `requestPage<T>(path, options)` | `path: string`, `options?: RequestOptions` | `Promise<Page<T>>` (`{ data: T[], meta: PageMeta }`) | Tự động chuẩn hóa cả 3 dạng phản hồi phân trang:<br>1. `{ data: { items, page, size, totalElements, totalPages } }` (`PageResponse<T>` của Backend thật).<br>2. `{ data: T[], meta: PageMeta }` (của Mock server).<br>3. `{ data: T[] }` (mảng phẳng không phân trang). |
@@ -202,13 +202,12 @@ frontend/
 #### `frontend/shared/src/api/catalog.ts`
 | Hàm | Input | Output | Kỹ thuật & Mô tả |
 | :--- | :--- | :--- | :--- |
-| `enrichShowtime(raw, movies, rooms)` *(internal)* | `raw: RawShowtime`, `movies: Map<number, Movie>`, `rooms: Map<number, Auditorium>` | `Showtime` | Hợp nhất dữ liệu suất chiếu từ Backend (`id, movieId, auditoriumId, startTime, endTime, basePrice`) với thông tin phim (`title, ageRating, durationMinutes`) và phòng chiếu (`name, auditoriumType`). |
-| `fetchShowtimeLookups(token, signal)` *(internal)* | `token: string, signal?: AbortSignal` | `Promise<{ movies: Map<number, Movie>; rooms: Map<number, Auditorium> }>` | Tải song song (`Promise.all`) danh sách phim `/movies?size=100` và `/auditoriums` (bắt lỗi `.catch(() => [])` an toàn khi tài khoản Customer/Staff không có quyền gọi `/auditoriums`). |
+| `enrichShowtime(raw, movies, rooms)` *(internal)* | `raw: RawShowtime`, `movies: Map<number, Movie>`, `rooms: Map<number, Auditorium>` | `Showtime` | Chuẩn hóa ID và kiểu giá; ưu tiên snapshot phim/phòng do `/showtimes` trả về. Catalog map hiện được truyền rỗng nên chỉ còn là fallback tương thích fixture cũ. |
 | `catalogApi.movies(token, filters, signal)` | `token: string`, `filters?: { keyword?, active?, page?, size? }`, `signal?: AbortSignal` | `Promise<Page<Movie>>` | Gọi `GET /movies` có phân trang và bộ lọc. |
 | `catalogApi.movie(id, token, signal)` | `id: number, token: string, signal?: AbortSignal` | `Promise<Movie>` | Gọi `GET /movies/{id}`. |
-| `catalogApi.showtimes(token, filters, signal)` | `token: string`, `filters?: { movieId?, auditoriumId?, date? }`, `signal?: AbortSignal` | `Promise<Showtime[]>` | Gọi `GET /showtimes`, tự động mở gói `PageResponse` và làm giàu dữ liệu qua `enrichShowtime`. |
-| `catalogApi.showtime(id, token, signal)` | `id: number, token: string, signal?: AbortSignal` | `Promise<Showtime>` | Gọi `GET /showtimes/{id}`, kết hợp đọc `/movies/{movieId}` và `/auditoriums` để trả về đối tượng `Showtime` đầy đủ. |
-| `catalogApi.concessions(token, signal)` | `token: string, signal?: AbortSignal` | `Promise<Concession[]>` | Gọi song song `GET /concessions?size=100` và `GET /inventory/alerts`, ánh xạ `availableQuantity` và cờ `lowStock` cho từng mặt hàng F&B. |
+| `catalogApi.showtimes(token, filters, signal)` | `token: string`, `filters?: { movieId?, auditoriumId?, date? }`, `signal?: AbortSignal` | `Promise<Showtime[]>` | Gọi `GET /showtimes`, mở toàn bộ trang và chuẩn hóa từng response. Tên, rating, thời lượng phim cùng tên/loại phòng ưu tiên snapshot trả thẳng từ backend. |
+| `catalogApi.showtime(id, token, signal)` | `id: number, token: string, signal?: AbortSignal` | `Promise<Showtime>` | Gọi `GET /showtimes/{id}` và chuẩn hóa response; không gọi thêm API phim hoặc phòng vì Showtime đã chứa các snapshot cần hiển thị. |
+| `catalogApi.concessions(token, signal)` | `token: string, signal?: AbortSignal` | `Promise<Concession[]>` | Gọi `GET /concessions?active=true`, mở danh sách phân trang và chuẩn hóa giá dạng số. Availability được lấy từ response catalog, không ghép thêm endpoint inventory quản trị. |
 
 #### `frontend/shared/src/api/pricing.ts`
 | Hàm | Input | Output | Kỹ thuật & Mô tả |
@@ -228,7 +227,7 @@ frontend/
 | :--- | :--- | :--- | :--- |
 | `normalizeTicket(t, show)` | `t: RawTicket, show?: Partial<Showtime>` | `Ticket` | Chuẩn hóa đối tượng vé từ Backend (`seatRow` + `seatNumber` -> `seatLabel`, tạo `qrPayload` từ `ticketCode`). |
 | `normalizeBooking(raw, fallback)` | `raw: RawBooking, fallback?: Partial<Booking>` | `Booking` | Hợp nhất tất cả dạng DTO đơn hàng của Backend (`BookingResponse`, `MeBookingSummaryResponse`, `MeBookingDetailResponse`, `PosBookingSummaryResponse`, `PosBookingDetailResponse`) với ngữ cảnh `fallback` sẵn có trên client; tự động liên kết nhãn ghế (`A1`, `B2`) giữa `seats` và `tickets`. |
-| `bookingsApi.create(body, token, context)` | `body: BookingInput, token: string, context?: Partial<Booking>` | `Promise<Booking>` | Gọi `POST /bookings` tạo đơn `PENDING` từ `holdToken` và giỏ `concessions` (bỏ qua `ageConfirmed` khi tạo từ POS vì POS xác nhận giấy tờ lúc thu tiền). |
+| `bookingsApi.create(body, token, context)` | `body: BookingInput, token: string, context?: Partial<Booking>` | `Promise<Booking>` | Gọi `POST /bookings` tạo đơn `PENDING` từ `holdToken` và giỏ `concessions` (bỏ qua `ageConfirmed` khi tạo từ POS vì POS xác nhận giấy tờ lúc thu tiền). Nếu phản hồi mất và lần gửi lại nhận `409 BOOKING_ALREADY_EXISTS`, đọc lại endpoint chi tiết theo role và khôi phục booking cùng snapshot đã lưu, không tạo booking thứ hai. |
 | `bookingsApi.get(id, token, pos, signal, fallback)` | `id: number, token: string, pos?: boolean, signal?: AbortSignal, fallback?: Partial<Booking>` | `Promise<Booking>` | Gọi `GET /pos/bookings/{id}` (nếu `pos=true`) hoặc `GET /me/bookings/{id}` (nếu `pos=false`). Nếu đơn đã `PAID` mà danh sách vé chưa đính kèm, tự động gọi bổ sung `GET /bookings/{id}/tickets`. |
 | `bookingsApi.list(token, pos, filters, signal)` | `token: string, pos?: boolean, filters?: Record<string, ...>, signal?: AbortSignal` | `Promise<Page<Booking>>` | Gọi `GET /pos/bookings` hoặc `GET /me/bookings` kèm bộ lọc phân trang. |
 | `bookingsApi.vnpay(id, token)` | `id: number, token: string` | `Promise<{ paymentUrl: string; expiresAt: string }>` | Gọi `POST /bookings/{id}/payments/vnpay` lấy URL cổng thanh toán VNPay. |
@@ -239,24 +238,25 @@ frontend/
 | `posApi.cash(id, cashReceived, ageDocumentChecked, token)` | `id: number, cashReceived: number, ageDocumentChecked: boolean, token: string` | `Promise<Payment>` | Gọi `POST /bookings/{id}/payments/cash` thu tiền mặt tại quầy, tính tiền thừa (`change`) và xuất vé ngay lập tức. |
 | `posApi.vietqr(id, ageDocumentChecked, token)` | `id: number, ageDocumentChecked: boolean, token: string` | `Promise<Payment>` | Gọi `POST /bookings/{id}/payments/vietqr` sinh mã VietQR (`qrPayload`, `bankName`, `bankAccount`, `transferContent`). |
 | `posApi.confirm(id, token)` | `id: number, token: string` | `Promise<Payment>` | Gọi `POST /bookings/{id}/payments/vietqr/confirm` xác nhận tiền đã vào tài khoản và phát hành vé. |
-| `posApi.lookup(code, token)` | `code: string, token: string` | `Promise<Ticket[]>` | Hỗ trợ tra cứu linh hoạt tại cổng soát vé:<br>1. Thử `/tickets/lookup?code=...` (Mock).<br>2. Gọi `GET /tickets/{ticketCode}` (Backend thật).<br>3. Nếu người dùng nhập mã đơn `BK-...`, tự động tìm qua `GET /pos/bookings?bookingCode=...` rồi lấy danh sách vé từ `GET /bookings/{bookingId}/tickets`. |
-| `posApi.validate(ticketCode, showtimeId, ageDocumentChecked, token)` | `ticketCode: string, showtimeId: number, ageDocumentChecked: boolean, token: string` | `Promise<Ticket>` | Gọi `POST /tickets/validate`. Tự động tương thích với cả Mock (`{ ticketCode, showtimeId, ageDocumentChecked }`) và Backend thật (`{ ticketCode, ageDocumentChecked }`). |
+| `posApi.lookup(code, token)` | `code: string, token: string` | `Promise<Ticket[]>` | Gọi `GET /tickets/lookup?code=...`. Backend tra được Ticket Code hoặc Booking Code và trả về dữ liệu vé phù hợp để Staff đối chiếu. |
+| `posApi.validate(ticketCode, showtimeId, ageDocumentChecked, token)` | `ticketCode: string, showtimeId: number, ageDocumentChecked: boolean, token: string` | `Promise<Ticket>` | Gọi `POST /tickets/validate` với `{ ticketCode, showtimeId, ageDocumentChecked }`, sau đó tải lại Ticket đầy đủ bằng `GET /tickets/{ticketCode}` để cập nhật giao diện sau khi soát. |
 
 #### `frontend/shared/src/api/refunds.ts`
 | Hàm | Input | Output | Kỹ thuật & Mô tả |
 | :--- | :--- | :--- | :--- |
 | `refundsApi.eligibility(code, token)` | `code: string, token: string` | `Promise<Eligibility>` | Gọi `GET /refunds/eligibility?ticketCode=...` kiểm tra từng vé trong đơn có đủ điều kiện hoàn hay không (trước giờ chiếu ≥ 30 phút, vé `VALID`). |
-| `refundsApi.override(username, pin, token)` | `username: string, pin: string, token: string` | `Promise<{ overrideToken: string; expiresAt: string }>` | Gọi `POST /manager-overrides` với `scope: "REFUND_APPROVAL"` bằng JWT của Staff hiện tại. |
-| `refundsApi.refund(body, token)` | `body: { bookingId, ticketIds, reason, overrideToken, cashConfirmed }, token: string` | `Promise<Refund>` | Gọi `POST /refunds` thực hiện hoàn các vé đã chọn sau khi Manager duyệt và xác nhận đã giao tiền mặt. |
+| `refundsApi.override(input, token)` | `input: { username, pin, bookingId, ticketIds, reason }, token` | `Promise<{ overrideToken, expiresAt, approvedRefundAmount }>` | Gọi `POST /manager-overrides` bằng JWT Staff; chỉ xác thực Manager và duyệt nội dung hoàn, chưa ghi nhận bàn giao tiền. |
+| `refundsApi.confirmCash(overrideToken, token)` | `overrideToken: string, token: string` | `Promise<{ cashConfirmedAt: string }>` | Gọi `POST /manager-overrides/cash-confirmation` sau khi khách đã nhận tiền mặt; lưu thời gian xác nhận và audit event. |
+| `refundsApi.refund(body, token)` | `body: { bookingId, ticketIds, reason, overrideToken }, token` | `Promise<Refund>` | Gọi `POST /refunds` sau cash confirmation để hủy các vé đã chọn và ghi refund record. |
 
 #### `frontend/shared/src/api/management.ts`
 | Hàm | Input | Output | Kỹ thuật & Mô tả |
 | :--- | :--- | :--- | :--- |
 | `normalizeItem<T>(resource, row)` *(internal)* | `resource: string, row: AnyRecord` | `T` | Đồng bộ tên trường giữa Backend và UI (`type` <-> `auditoriumType`, `id` <-> `seatId`, `type` <-> `seatType`, `type` <-> `ruleType`, `name` <-> `itemName`). |
-| `managementApi.list<T>(resource, token, signal)` | `resource: string, token: string, signal?: AbortSignal` | `Promise<T[]>` | Đọc danh sách tài nguyên bất kỳ (`auditoriums`, `pricing/rules`, `inventory/alerts`, `staff`, `auditoriums/{id}/seats`), tự động mở gói nếu Backend trả về `PageResponse`. |
+| `managementApi.list<T>(resource, token, signal)` | `resource: string, token: string, signal?: AbortSignal` | `Promise<T[]>` | Đọc danh sách tài nguyên quản trị (`auditoriums`, `pricing-rules`, `inventory`, `staff`, `auditoriums/{id}/seats`), tự động mở gói nếu Backend trả về `PageResponse` và chuẩn hóa tên trường cho UI. |
 | `managementApi.save<T>(resource, body, token, id?)` | `resource: string, body: unknown, token: string, id?: number` | `Promise<T>` | Xử lý lưu (Tạo mới `POST` hoặc Cập nhật `PATCH`) cho từng loại tài nguyên với bộ chuyển đổi payload thông minh:<br>- `movies`: Loại bỏ chuỗi rỗng cho trường tùy chọn, gọi thêm `PATCH /movies/{id}/status` nếu đổi cờ `active`.<br>- `auditoriums`: Gửi `{ name, totalSeats, type }` và đồng bộ trạng thái qua `/auditoriums/{id}/status`.<br>- `auditoriums/{id}/seats`: Đóng gói `{ seats: [{ row, number, type }] }` khi tạo ghế mới.<br>- `showtimes`: Chỉ gửi `{ movieId, auditoriumId, startTime }` khi tạo mới và `{ movieId, startTime }` khi cập nhật.<br>- `concessions`: Tự động định tuyến sang `/concessions/combos` nếu `combo === true` hoặc `/concessions` nếu là món lẻ.<br>- `staff`: Gửi `{ username, fullName, email, phone, password }` khi tạo mới và `{ fullName, email, phone }` khi sửa. |
-| `managementApi.action<T>(path, body, token, method?)` | `path: string, body: unknown, token: string, method = "POST"` | `Promise<T>` | Thực thi các hành động chuyên biệt: ghép/tách cặp Sweetbox (`/seats/sweetbox-pairs`), đổi trạng thái ghế/nhân viên/bảng giá (`PATCH .../status`), hủy suất chiếu (`POST /showtimes/{id}/cancel`), nhập kho (`POST /concessions/{id}/restock`). |
-| `managementApi.restocks(token, filters, signal)` | `token: string, filters: Record<string, ...>, signal?: AbortSignal` | `Promise<Page<Restock>>` | Gọi `GET /inventory/restocks`, tự động chuyển đổi ngày `YYYY-MM-DD` sang mốc thời gian ISO-8601 (`T00:00:00Z` / `T23:59:59Z`) cho khớp kiểu `Instant` của Backend. |
+| `managementApi.action<T>(path, body, token, method?)` | `path: string, body: unknown, token: string, method = "POST"` | `Promise<T>` | Thực thi các hành động chuyên biệt đang dùng trong portal: ghép/tách cặp Sweetbox (`POST`/`DELETE /seats/sweetbox-pairs`), đổi trạng thái Staff (`PATCH /staff/{id}/status`), reset mật khẩu Staff (`POST /staff/{id}/reset-password`) và nhập kho (`POST /inventory/{itemId}/restocks`). Không có thao tác khóa ghế, tắt quy tắc giá hay hủy suất chiếu. |
+| `managementApi.restocks(token, filters, signal)` | `token: string, filters: Record<string, ...>, signal?: AbortSignal` | `Promise<Page<Restock>>` | Gọi `GET /inventory/restocks`, kiểm tra thứ tự ngày và chuyển ngày `YYYY-MM-DD` thành biên giờ `+07:00` trước khi gửi bộ lọc thời gian tới Backend. |
 
 #### `frontend/shared/src/api/reports.ts`
 | Hàm | Input | Output | Kỹ thuật & Mô tả |
@@ -328,7 +328,7 @@ frontend/
 
 | File & Component | Input (Props) | Output (JSX) | Kỹ thuật & Mô tả |
 | :--- | :--- | :--- | :--- |
-| [`PortalLayout.tsx`](../../frontend/shared/src/layout/PortalLayout.tsx) — `PortalLayout` | `{ children: ReactNode }` | `JSX.Element` | Hiển thị Sidebar điều hướng động theo `session.user.role` (`MANAGER`: 10 mục, `STAFF`: 4 mục, `CUSTOMER`: 2 mục + mục `Tài khoản`), thông tin người dùng, nút Đăng xuất, và nhãn chế độ (`"Dữ liệu mô phỏng"` hoặc `"API thật"`). |
+| [`PortalLayout.tsx`](../../frontend/shared/src/layout/PortalLayout.tsx) — `PortalLayout` | `{ children: ReactNode }` | `JSX.Element` | Hiển thị Sidebar điều hướng động theo `session.user.role` (`MANAGER`: 10 mục, `STAFF`: 4 mục, `CUSTOMER`: 2 mục + mục `Tài khoản`), thông tin người dùng, và nút Đăng xuất. |
 | [`SeatMap.tsx`](../../frontend/shared/src/components/SeatMap.tsx) — `SeatMap` | `{ seats: Seat[], selected: number[], locked: boolean, onSelect: (ids: number[]) => void }` | `JSX.Element` | Sơ đồ ghế chia theo hàng (`row`). Tự động xử lý quy tắc **Sweetbox**: bấm vào 1 ghế `SWEETBOX` sẽ chọn/bỏ chọn đồng thời cả `seat.seatId` và `seat.pairSeatId`; nếu ghế cặp đôi không `AVAILABLE` thì vô hiệu hóa (`disabled`) cả cặp. Hỗ trợ đầy đủ `aria-label` và `aria-pressed` cho khả năng tiếp cận (Accessibility). |
 | [`ConcessionPicker.tsx`](../../frontend/shared/src/components/ConcessionPicker.tsx) — `ConcessionPicker` | `{ items: Concession[], cart: CartLine[], onChange: (cart: CartLine[]) => void, disabled?: boolean }` | `JSX.Element` | Hiển thị các món F&B đang `active`, giá bán, cảnh báo `"Sắp hết"` hoặc `"Hết hàng"`. Giới hạn số lượng đặt trong khoảng `[0, item.availableQuantity]`. |
 | [`OrderSummary.tsx`](../../frontend/shared/src/components/OrderSummary.tsx) — `OrderSummary` | `{ quote?: Quote \| null, booking?: Booking \| null, items?: Concession[], cart?: CartLine[] }` | `JSX.Element` | - Khi chưa tạo đơn (`!booking`): hiển thị giá từng ghế từ `quote`, từng món F&B trong `cart` và dòng **Tạm tính** (`quote.total + fnbTotal`) ngay lập tức.<br>- Khi đã tạo đơn (`booking`): hiển thị mã đơn `bookingCode`, trạng thái, danh sách ghế, món F&B và **Tổng thanh toán** chính thức từ server. |
@@ -337,7 +337,9 @@ frontend/
 | [`TicketView.tsx`](../../frontend/shared/src/components/TicketView.tsx) — `Qr` & `TicketView` | `Qr({ payload })`, `TicketView({ booking })` | `JSX.Element` | - `Qr`: Sinh ảnh Data URL từ chuỗi `payload` bằng thư viện `qrcode` (`QRCode.toDataURL`).<br>- `TicketView`: Hiển thị danh sách vé đã phát hành, mã QR từng ghế, danh sách F&B và nút `"In vé / hóa đơn"` gọi `window.print()`. |
 | [`ConfirmDialog.tsx`](../../frontend/shared/src/components/ConfirmDialog.tsx) — `ConfirmDialog` | `{ title: string, children: ReactNode, onClose: () => void }` | `JSX.Element` | Sử dụng phần tử `<dialog>` gốc của trình duyệt (`dialog.showModal()`) để tự động khóa focus (focus trap) và hỗ trợ phím `Escape` (`onCancel`). |
 | [`Feedback.tsx`](../../frontend/shared/src/components/Feedback.tsx) — `Feedback` | `{ loading?: boolean, error?: Error \| string, empty?: boolean, retry?: () => void }` | `JSX.Element \| null` | Hiển thị thống nhất 3 trạng thái: đang tải (`"Đang tải…"`), lỗi (`role="alert"` kèm nút `"Thử lại"`), hoặc danh sách rỗng (`"Chưa có dữ liệu."`). |
-| [`Pagination.tsx`](../../frontend/shared/src/components/Pagination.tsx) — `Pagination` | `{ meta: PageMeta, onPage: (page: number) => void }` | `JSX.Element` | Hiển thị nút `"Trước"`, `"Trang X / Y · N kết quả"`, và nút `"Sau"`. |
+| [`Pagination.tsx`](../../frontend/shared/src/components/Pagination.tsx) — `Pagination` | `{ meta: PageMeta, onPage: (page: number) => void }` | `JSX.Element` | Hiển thị nút `"Trước"`, `"Trang X / Y, N kết quả"`, và nút `"Sau"`. |
+| [`DateRail.tsx`](../../frontend/shared/src/components/DateRail.tsx) — `DateRail` | `{ value, onChange, showtimeCounts?, days? }` | `JSX.Element` | Dải ngày bắt đầu từ hôm nay, vuốt ngang hoặc dùng mũi tên để xem tiếp; số suất trên mỗi ngày được đánh dấu rõ. Customer và Staff POS dùng chung component này. |
+| [`MoviePicker.tsx`](../../frontend/shared/src/components/MoviePicker.tsx) — `MoviePicker` | `{ movies, value, onChange }` | `JSX.Element` | Staff POS chọn phim bằng áp phích, nhãn độ tuổi và thời lượng; có tìm kiếm tên phim và thẻ phim đang chọn. |
 | [`AccountPanel.tsx`](../../frontend/shared/src/components/AccountPanel.tsx) — `AccountPanel` | Không có | `JSX.Element` | Hiển thị thông tin chi tiết của người dùng hiện tại (`username`, `email`, `phone`, `role`) và nút `"Kiểm tra phiên đăng nhập →"` gọi `refreshProfile()`. |
 
 ---
@@ -347,11 +349,11 @@ frontend/
 #### `frontend/shared/src/pages/BookingPages.tsx`
 | Component Trang | Route | Mô tả Nghiệp vụ, State & Hàm Xử lý |
 | :--- | :--- | :--- |
-| `MovieListPage` | Customer `/movies` | Tìm kiếm phim theo `keyword` và phân trang `page`. Hiển thị danh sách thẻ phim đang chiếu (`active: true`). |
-| `MovieDetailPage` | Customer `/movies/:id` | Hiển thị thông tin chi tiết phim, link trailer và danh sách các suất chiếu theo ngày (`date`, mặc định `today()`). Bấm `"Chọn ghế"` sẽ lưu `SHOWTIME` vào `BookingFlowProvider` và điều hướng sang `/showtimes/:id/book`. |
-| `ShowtimeSearchPage` | Staff `/pos` | Màn hình chọn nhanh suất chiếu tại quầy POS: lọc theo ngày (`date`) và phim (`movieId`). Bấm `"Chọn suất"` điều hướng sang `/pos/showtimes/:id`. |
+| `MovieListPage` | Customer `/movies` | Tìm kiếm phim theo `keyword` và phân trang `page`. Thẻ phim bấm được toàn bộ; trạng thái hiển thị `Sắp chiếu`, `Đang chiếu` hoặc `Hết chiếu`. |
+| `MovieDetailPage` | Customer `/movies/:id` | Hiển thị thông tin chi tiết phim, link trailer và `DateRail` 30 ngày bắt đầu từ hôm nay; ngày có suất hiện số suất. Bấm `"Chọn suất"` lưu `SHOWTIME` vào `BookingFlowProvider` và điều hướng sang `/showtimes/:id/book`. |
+| `ShowtimeSearchPage` | Staff `/pos` | Chọn phim trước bằng `MoviePicker` có áp phích/tìm kiếm, sau đó chọn ngày trong `DateRail` có số suất, rồi chọn suất. Bấm `"Chọn suất"` điều hướng sang `/pos/showtimes/:id`. |
 | `BookingPage` | Customer `/showtimes/:id/book`<br>Staff `/pos/showtimes/:id` | - Tải thông tin suất chiếu (`catalogApi.showtime`), danh sách F&B (`catalogApi.concessions`) và sơ đồ ghế (`useSeatHold`).<br>- Tự động gọi `POST /pricing/quote` mỗi khi danh sách ghế chọn (`state.selected`) hoặc ghế giữ (`hold.hold`) thay đổi để hiển thị giá vé tức thời trong `<OrderSummary />`.<br>- Cung cấp các nút: `"Giữ các ghế đã chọn"`, `"Chọn lại ghế"` (nhả ghế đang giữ), và `"Tiếp tục thanh toán"`. |
-| `CheckoutPage` | Customer `/checkout`<br>Staff `/pos/checkout` | - Hiển thị `<HoldCountdown />`, `<OrderSummary />`, và `<AgeConfirmation />`.<br>- Nút `"Tạo đơn · lấy tổng thanh toán"` gọi `bookingsApi.create`.<br>- **Với Staff POS**: Nhập `"Tiền khách đưa"`, tự động tính `"Tiền thừa dự kiến"`, bấm `"Thu tiền mặt"` (`posApi.cash`) hoặc `"Tạo VietQR"` (`posApi.vietqr`) -> hiển thị mã QR chuyển khoản -> tích `"Đã kiểm tra tiền vào tài khoản"` -> bấm `"Xác nhận đã nhận tiền"` (`posApi.confirm`). Khi `PAID`, tự động chuyển sang `/pos/bookings/:id/receipt`.<br>- **Với Customer Online**: Bấm `"Tạo liên kết VNPay"` (`bookingsApi.vnpay`) -> mở link VNPay ở tab mới (`target="_blank"`). Trong lúc chờ, tab hiện tại tự động polling `bookingsApi.get` mỗi 3 giây và lắng nghe `BroadcastChannel("cinema-reference-payments")` để tự động hiển thị vé ngay khi Server xác nhận `PAID`.<br>- Cho phép `"Sửa F&B"` (mở modal `<ConcessionPicker />` gọi `PATCH /bookings/{id}`) hoặc `"Hủy đơn chờ"` (`POST /bookings/{id}/cancel`) trước khi thanh toán. |
+| `CheckoutPage` | Customer `/checkout`<br>Staff `/pos/checkout` | - Hiển thị `<HoldCountdown />`, `<OrderSummary />`, và `<AgeConfirmation />`.<br>- Nút `"Tạo đơn, lấy tổng thanh toán"` gọi `bookingsApi.create`.<br>- **Với Staff POS**: Nhập `"Tiền khách đưa"`, tự động tính `"Tiền thừa dự kiến"`, bấm `"Thu tiền mặt"` (`posApi.cash`) hoặc `"Tạo VietQR"` (`posApi.vietqr`) -> hiển thị payload VietQR -> tích `"Đã kiểm tra tiền vào tài khoản"` -> bấm `"Xác nhận đã nhận tiền"` (`posApi.confirm`). Khi thanh toán Customer thành `PAID`, chuyển sang bước 5 và hiện vé điện tử; Staff POS chuyển sang `/pos/bookings/:id/receipt`. Lịch sử hiển thị tên phim và giờ chiếu.<br>- **Với Customer Online**: Bấm `"Tạo liên kết VNPay"` (`bookingsApi.vnpay`) -> mở link VNPay ở tab mới (`target="_blank"`). Trong lúc chờ, tab hiện tại tự động polling `bookingsApi.get` mỗi 3 giây và lắng nghe `BroadcastChannel("cinema-reference-payments")` để tự động hiển thị vé ngay khi Server xác nhận `PAID`.<br>- Ghế và F&B được chọn trước khi tạo Booking; sau khi tạo không có API sửa hoặc hủy Booking PENDING. |
 | `PaymentReturnPage` | `/payment-return`<br>`/payments/vnpay/return` | Trang đích khi trình duyệt quay về từ VNPay. Nếu URL có `vnp_TxnRef`, gọi `GET /payments/vnpay/return` để hiển thị trạng thái đối chiếu từ Backend. Trong chế độ Dev/Mock (`mockBooking`), cung cấp nút `"Mô phỏng IPN thành công"` phát tín hiệu qua `BroadcastChannel`. |
 | `BookingHistoryPage` | Customer `/bookings`<br>Staff `/transactions` | Hiển thị danh sách đơn đặt vé có phân trang. Với Staff POS, hỗ trợ bộ lọc theo `Mã đơn`, `Ngày`, và `Thanh toán` (`CASH` / `VIETQR`). |
 | `BookingDetailPage` | Customer `/bookings/:id`<br>Staff `/pos/bookings/:id/receipt`<br>Staff `/transactions/:id` | Hiển thị chi tiết đơn hàng (`<OrderSummary />`), danh sách vé và mã QR (`<TicketView />`), thông tin hoàn tiền (nếu có) và liên kết `"Yêu cầu hoàn vé tại quầy"` cho Staff. |
@@ -359,7 +361,7 @@ frontend/
 #### `frontend/shared/src/pages/StaffPages.tsx`
 | Component | Route | Mô tả Nghiệp vụ, State & Hàm Xử lý |
 | :--- | :--- | :--- |
-| `ManagerOverrideDialog` | Modal trong `/refunds` | Nhận `{ bookingId, ticketIds, reason, onClose, onDone }`.<br>- Bước 1 (`approve`): Nhập `Tài khoản Manager` và `PIN Manager`, xóa ngay `pin` khỏi state, gọi `refundsApi.override`.<br>- Bước 2 (`refund`): Hiển thị thời hạn phê duyệt, yêu cầu tích `"Manager đã bàn giao đủ tiền mặt cho khách"` (`cash`), sau đó gọi `refundsApi.refund` và trả số tiền hoàn về `onDone(result.refundAmount)`. |
+| `ManagerOverrideDialog` | Modal trong `/refunds` | Nhận `{ bookingId, ticketIds, reason, onClose, onDone }`.<br>- Bước 1 (`approve`): Nhập `Tài khoản Manager` và `PIN Manager`, xóa ngay `pin` khỏi state, gọi `refundsApi.override`.<br>- Bước 2 (`cash handover`): Hướng dẫn Manager lấy/đếm Cash Float, Staff giao tiền cho khách, rồi Manager xác nhận qua `refundsApi.confirmCash`.<br>- Bước 3 (`refund`): Chỉ sau xác nhận cash mới gọi `refundsApi.refund`; hiển thị số tiền và biên nhận để in. |
 | `RefundPage` | Staff `/refunds` | Nhập mã Booking hoặc Ticket -> gọi `refundsApi.eligibility` -> hiển thị danh sách vé kèm trạng thái đủ/không đủ điều kiện hoàn -> chọn các vé muốn hoàn -> tính tổng tiền vé hoàn -> nhập lý do hoàn -> mở `ManagerOverrideDialog`. |
 | `TicketValidationPage` | Staff `/gate` | Chọn `"Suất chiếu tại cửa"`, nhập/quét `"Mã vé / Booking"` -> gọi `posApi.lookup` -> hiển thị thông tin vé, ghế, giờ chiếu và `<AgeConfirmation pos />` -> bấm `"Chấp nhận vé <Ghế>"` (`posApi.validate`) để chuyển vé sang trạng thái `USED`. |
 
@@ -370,14 +372,15 @@ frontend/
 | `DashboardPage` | Manager `/dashboard` | Tổng quan nhanh trong ngày: số lượng phim, suất chiếu hôm nay, nhân viên đang hoạt động, cảnh báo tồn kho thấp và doanh thu trong ngày. |
 | `MoviesPage` | Manager `/movies` | Tìm kiếm, phân trang, thêm mới và chỉnh sửa thông tin phim (`catalogApi.movies`, `managementApi.save("movies")`). |
 | `AuditoriumsPage` | Manager `/auditoriums` | Danh sách phòng chiếu, thêm/sửa phòng (`STANDARD_2D`, `3D`, `IMAX`), dẫn link sang sơ đồ ghế của từng phòng. |
-| `SeatLayoutPage` | Manager `/auditoriums/:id/seats` | Quản lý ghế trong phòng: thêm ghế mới, sửa loại ghế (`STANDARD`, `VIP`, `SWEETBOX`), ghép cặp 2 ghế Sweetbox cùng hàng liền kề (`pair()`), tách cặp (`unpair()`), và khóa/mở ghế (`PATCH /seats/{id}/status`). |
-| `ShowtimesPage` | Manager `/showtimes` | Lọc suất chiếu theo ngày, tạo mới / đổi giờ chiếu (tự động bắt lỗi `409 SHOWTIME_OVERLAP` ngay trên form), và hủy suất chiếu (`POST /showtimes/{id}/cancel`). |
-| `PricingPage` | Manager `/pricing` | Quản lý bảng quy tắc phụ thu giá (`SEAT_TYPE`, `DAY_TYPE`, `TIME_SLOT`, `AUDITORIUM_TYPE`), thêm/sửa và bật/tắt trạng thái quy tắc. |
+| `SeatLayoutPage` | Manager `/auditoriums/:id/seats` | Quản lý ghế: thêm ghế, sửa hàng/vị trí/loại, ghép hai ghế Sweetbox kề nhau (`POST /seats/sweetbox-pairs`) và tách cặp (`DELETE /seats/sweetbox-pairs/{seatId}`). Layout demo gồm 20 ghế; bốn hàng ghế thường ở phía trước, bốn Sweetbox ghép đôi ở hàng E cuối cùng. Không có trạng thái khóa ghế; backend khóa sửa layout sau khi phòng đã có Showtime. |
+| `ShowtimesPage` | Manager `/showtimes` | Lọc theo ngày, phim và phòng; tạo/sửa suất chiếu. Backend trả `SHOWTIME_CONFLICT` khi trùng lịch và từ chối sửa nếu đã có vé hoặc inventory không còn AVAILABLE. Không có thao tác hủy Showtime; Manager vẫn xem được lịch gắn với phim/phòng inactive. |
+| `PricingPage` | Manager `/pricing` | Quản lý tám cặp quy tắc `BASE_PRICE`, `ROOM_SURCHARGE`, `SEAT_SURCHARGE`, `TIME_SURCHARGE` theo `PricingRuleCatalog`; chỉ tạo/sửa số tiền và mô tả, không bật/tắt quy tắc. Có màn quote preview gọi `POST /pricing/quote` để xem phụ thu server tính cho Showtime/ghế đã chọn. |
 | `ConcessionsPage` | Manager `/concessions` | Quản lý danh mục mặt hàng F&B lẻ và Combo (cho phép chọn số lượng từng món thành phần trong Combo). |
-| `InventoryPage` | Manager `/inventory` | Theo dõi tồn kho F&B, ngưỡng cảnh báo sắp hết (`lowStockThreshold`) và thực hiện `"Nhập kho"` cộng dồn số lượng kèm ghi chú (`POST /concessions/{id}/restock`). |
+| `InventoryPage` | Manager `/inventory` | Theo dõi tồn kho F&B, lọc mặt hàng theo từ khóa/trạng thái và thực hiện `"Nhập kho"` cộng dồn số lượng kèm ghi chú (`POST /inventory/{itemId}/restocks`). |
 | `RestockHistoryPage` | Manager `/inventory/history` | Tra cứu lịch sử nhập kho bất biến (Immutable Restock History) lọc theo mặt hàng và khoảng ngày (`from`, `to`), hiển thị tồn trước/sau nhập và người nhập. |
 | `StaffPage` | Manager `/staff` | Danh sách tài khoản nhân viên, tạo nhân viên mới, cập nhật thông tin và Khóa / Mở khóa tài khoản (`PATCH /staff/{id}/status`). |
 | `ReportsPage` | Manager `/reports` | Báo cáo thống kê theo khoảng thời gian (`from` -> `to`, kiểm tra chặn `from > to`): Doanh thu gộp, Tiền hoàn, Doanh thu ròng, Doanh thu vé vs F&B, Kênh POS vs Online, Tỷ lệ lấp đầy ghế (Occupancy), Cảnh báo tồn kho và Bảng xếp hạng doanh thu theo phim. |
+| `DashboardPage` | Manager `/` | Đọc `/reports/payment-exceptions` và hiển thị Booking đã PAID nhưng chưa cấp vé; cho retry đọc danh sách. Queue không tự hoàn tiền hay phát hành vé. |
 
 ---
 
@@ -439,7 +442,7 @@ powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\setup\Initia
 # 2. Khởi động PostgreSQL tại cổng 5433 qua Docker Compose
 docker compose up -d --wait
 
-# 3. Khởi động Backend Spring Boot tại http://localhost:8080 (Swagger: http://localhost:8080/swagger-ui/index.html)
+# 3. Khởi động Backend Spring Boot tại http://localhost:8081 (Swagger: http://localhost:8081/swagger-ui/index.html)
 powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\setup\Start-Backend.ps1
 ```
 
@@ -467,16 +470,17 @@ export SPRING_PROFILES_ACTIVE="local"
 export DEMO_PASSWORD="Reference123!"
 export DEMO_MANAGER_PIN="123456"
 export CINEMA_BANK_ACCOUNT="0123456789"
-export CINEMA_BANK_NAME="Vietcombank"
+export CINEMA_BANK_NAME="VietinBank"
+export CINEMA_BANK_BIN="970415"
 export VNPAY_TMN_CODE="TESTCODE"
 export VNPAY_HASH_SECRET="local-test-secret-for-hmac"
 export VNPAY_PAY_URL="https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"
 export VNPAY_RETURN_URL="http://localhost:3003/payments/vnpay/return"
-export VNPAY_IPN_URL="http://localhost:8080/api/v1/payments/vnpay/ipn"
+export VNPAY_IPN_URL="http://localhost:8081/api/v1/payments/vnpay/ipn"
 ./mvnw spring-boot:run
 ```
 
-Trong 3 terminal khác, chạy 3 cổng Frontend kết nối trực tiếp vào Backend thật (`http://localhost:8080/api/v1`):
+Trong 3 terminal khác, chạy 3 cổng Frontend kết nối trực tiếp vào Backend thật (`http://localhost:8081/api/v1`):
 ```bash
 cd frontend
 npm run dev:manager   # http://localhost:3001 (manager01 / Reference123!)

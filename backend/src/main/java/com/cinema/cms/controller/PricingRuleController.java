@@ -2,6 +2,7 @@ package com.cinema.cms.controller;
 
 import com.cinema.cms.dto.*;
 import com.cinema.cms.service.PricingRuleService;
+import com.cinema.cms.service.SessionPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -12,6 +13,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -46,15 +48,17 @@ public class PricingRuleController {
     @ApiResponses({@ApiResponse(responseCode = "201", description = "Đã tạo quy tắc"),
             @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR hoặc PRICING_RULE_INVALID: đối tượng không thuộc danh mục của loại"),
             @ApiResponse(responseCode = "409", description = "PRICING_RULE_CODE_EXISTS hoặc PRICING_RULE_EXISTS")})
-    public com.cinema.cms.dto.ApiResponse<PricingRuleResponse> create(@Valid @RequestBody CreatePricingRuleRequest request) {
-        return new com.cinema.cms.dto.ApiResponse<>(rules.create(request));
+    public com.cinema.cms.dto.ApiResponse<PricingRuleResponse> create(@Valid @RequestBody CreatePricingRuleRequest request,
+            @AuthenticationPrincipal SessionPrincipal user) {
+        return new com.cinema.cms.dto.ApiResponse<>(rules.create(request, user.userId()));
     }
 
     @PatchMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Đổi số tiền và mô tả của quy tắc (không đổi mã, loại, đối tượng)")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "Quy tắc sau khi cập nhật"), @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: số tiền âm, quá lớn hoặc quá 2 chữ số thập phân, có trường lạ"),
             @ApiResponse(responseCode = "404", description = "PRICING_RULE_NOT_FOUND")})
-    public com.cinema.cms.dto.ApiResponse<PricingRuleResponse> update(@PathVariable Integer id, @Valid @RequestBody UpdatePricingRuleRequest request) {
-        return new com.cinema.cms.dto.ApiResponse<>(rules.update(id, request));
+    public com.cinema.cms.dto.ApiResponse<PricingRuleResponse> update(@PathVariable Integer id, @Valid @RequestBody UpdatePricingRuleRequest request,
+            @AuthenticationPrincipal SessionPrincipal user) {
+        return new com.cinema.cms.dto.ApiResponse<>(rules.update(id, request, user.userId()));
     }
 }

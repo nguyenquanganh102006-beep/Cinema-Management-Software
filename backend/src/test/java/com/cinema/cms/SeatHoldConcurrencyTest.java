@@ -151,14 +151,14 @@ class SeatHoldConcurrencyTest extends SeatHoldTestSupport {
 
   @org.springframework.beans.factory.annotation.Autowired ShowtimeService schedules;
 
-  private void awaitInventoryWait() {
+  private void awaitWriteLockWait() {
     org.awaitility.Awaitility.await()
         .atMost(java.time.Duration.ofSeconds(1))
         .until(
             () ->
                 jdbc.queryForObject(
-                        "select count(*) from pg_stat_activity where datname=current_database() and"
-                            + " wait_event_type='Lock' and query like '%showtime_seats%'",
+                        "select count(*) from pg_stat_activity where datname=current_database()"
+                            + " and pid <> pg_backend_pid() and wait_event_type='Lock'",
                         Integer.class)
                     > 0);
   }
@@ -193,7 +193,7 @@ class SeatHoldConcurrencyTest extends SeatHoldTestSupport {
       var hold =
           pool.submit(
               () -> attempt(() -> holds.hold(show, new HoldSeatsRequest(List.of(a1)), staff)));
-      awaitInventoryWait();
+      awaitWriteLockWait();
       commit.countDown();
       update.get(3, TimeUnit.SECONDS);
       assertThat(hold.get(3, TimeUnit.SECONDS)).isEqualTo("SHOWTIME_STARTED");
@@ -238,7 +238,7 @@ class SeatHoldConcurrencyTest extends SeatHoldTestSupport {
                                   java.time.OffsetDateTime.ofInstant(
                                       clock.instant().plusSeconds(4000),
                                       java.time.ZoneOffset.UTC)))));
-      awaitInventoryWait();
+      awaitWriteLockWait();
       commit.countDown();
       hold.get(3, TimeUnit.SECONDS);
       assertThat(update.get(3, TimeUnit.SECONDS)).isEqualTo("SHOWTIME_CANNOT_BE_MODIFIED");
@@ -276,7 +276,7 @@ class SeatHoldConcurrencyTest extends SeatHoldTestSupport {
       clock.advance(60);
       assertThat(expiration.candidates()).contains(held.holdToken());
       var cleanup = pool.submit(() -> expiration.expire(held.holdToken()));
-      awaitInventoryWait();
+      awaitWriteLockWait();
       commit.countDown();
       extension.get(3, TimeUnit.SECONDS);
       assertThat(cleanup.get(3, TimeUnit.SECONDS)).isFalse();
@@ -313,7 +313,7 @@ class SeatHoldConcurrencyTest extends SeatHoldTestSupport {
     try {
       assertThat(reclaimed.await(3, TimeUnit.SECONDS)).isTrue();
       var release = pool.submit(() -> holds.release(held.holdToken(), staff));
-      awaitInventoryWait();
+      awaitWriteLockWait();
       commit.countDown();
       reclaim.get(3, TimeUnit.SECONDS);
       release.get(3, TimeUnit.SECONDS);

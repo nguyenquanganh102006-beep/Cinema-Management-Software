@@ -14,6 +14,7 @@ public class ConcessionItem {
     @Column(nullable = false, precision = 10, scale = 2) private BigDecimal price;
     @Column(name = "is_combo", nullable = false) private boolean combo;
     @Column(name = "is_active", nullable = false) private boolean active;
+    @Column(name = "image_url", length = 2048) private String imageUrl;
 
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "combo_items", joinColumns = @JoinColumn(name = "combo_id"))
@@ -44,5 +45,7 @@ public class ConcessionItem {
     public BigDecimal getPrice() { return price; }
     public boolean isCombo() { return combo; }
     public boolean isActive() { return active; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public Map<Integer, Integer> getComponents() { return components; }
 }

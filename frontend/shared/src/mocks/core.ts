@@ -51,6 +51,7 @@ export function createMockApi() {
     bookingId: number;
     ticketIds: number[];
     reason: string;
+    cashConfirmedAt?: string;
     refund?: Refund;
   }>();
   let sequence = 100;
@@ -86,8 +87,8 @@ export function createMockApi() {
     if (!Number.isSafeInteger(body.bookingId) || Number(body.bookingId) <= 0 ||
       !Array.isArray(ids) || !ids.length || ids.length > 200 ||
       ids.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length ||
-      typeof body.reason !== "string" || !body.reason.trim() || body.reason.length > 255 || body.cashConfirmed !== true)
-      fail(400, "VALIDATION_ERROR", "Cần mã vé duy nhất, lý do và xác nhận bàn giao tiền mặt");
+      typeof body.reason !== "string" || !body.reason.trim() || body.reason.length > 255)
+      fail(400, "VALIDATION_ERROR", "Cần mã vé duy nhất và lý do hợp lệ");
     return (ids as number[]).slice().sort((a, b) => a - b);
   }
   function refundReason(ticket: Ticket, booking: Booking): string | undefined {
@@ -882,6 +883,24 @@ export function createMockApi() {
           approvedRefundAmount: tickets.reduce((sum, t) => sum + t.priceSnapshot, 0),
         });
       }
+      if (path === "/manager-overrides/cash-confirmation" && method === "POST") {
+        requireRole("STAFF");
+        const submittedToken = body.overrideToken;
+        if (typeof submittedToken !== "string" || !/^[a-f0-9]{64}$/.test(submittedToken))
+          fail(400, "VALIDATION_ERROR", "Mã phê duyệt không đúng định dạng");
+        const override = overrides.get(submittedToken as string)
+          ?? fail(403, "MANAGER_OVERRIDE_REQUIRED", "Không tìm thấy phê duyệt");
+        if (override.owner !== token)
+          fail(403, "MANAGER_OVERRIDE_MISMATCH", "Phê duyệt không thuộc phiên Staff này");
+        if (override.cashConfirmedAt) return json({ cashConfirmedAt: override.cashConfirmedAt });
+        if (override.refund) fail(409, "REFUND_CASH_NOT_CONFIRMED", "Không có dấu thời gian bàn giao tiền");
+        if (override.expires <= Date.now()) fail(403, "MANAGER_OVERRIDE_EXPIRED", "Phê duyệt đã hết hạn");
+        const booking = bookings.find((b) => b.bookingId === override.bookingId)
+          ?? fail(404, "BOOKING_NOT_FOUND", "Không có đơn");
+        refundableTickets(booking, override.ticketIds);
+        override.cashConfirmedAt = now();
+        return json({ cashConfirmedAt: override.cashConfirmedAt });
+      }
       if (path === "/refunds" && method === "POST") {
         requireRole("STAFF");
         const ids = refundSelection(body);
@@ -901,14 +920,18 @@ export function createMockApi() {
           bookings.find((b) => b.bookingId === Number(body.bookingId)) ??
           fail(404, "BOOKING_NOT_FOUND", "Không có đơn");
         const tickets = refundableTickets(booking, ids);
-        if (override.expires <= Date.now()) fail(403, "MANAGER_OVERRIDE_EXPIRED", "Phê duyệt đã hết hạn");
+        if (!override.cashConfirmedAt && override.expires <= Date.now())
+          fail(403, "MANAGER_OVERRIDE_EXPIRED", "Phê duyệt đã hết hạn");
+        if (typeof override.cashConfirmedAt !== "string")
+          fail(409, "REFUND_CASH_NOT_CONFIRMED", "Manager chưa xác nhận bàn giao tiền mặt");
+        const cashConfirmedAt = override.cashConfirmedAt as string;
         const refund: Refund = {
           refundId: ++sequence,
           bookingId: booking.bookingId,
           refundAmount: tickets.reduce((n, t) => n + t.priceSnapshot, 0),
           ticketIds: ids,
           status: "COMPLETED",
-          cashConfirmedAt: now(),
+          cashConfirmedAt,
           refundStatus: booking.tickets.every((t) => t.status === "CANCELLED" || ids.includes(t.ticketId)) ? "FULL" : "PARTIAL",
         };
         tickets.forEach((t) => {

@@ -106,10 +106,13 @@ Recovery lấy ID từ query `booking` hoặc `cinema:pending:<userId>`. Backend
 | Gate lookup | code, suất cửa | `posApi.lookup`, trả toàn bộ vé của booking hoặc một vé | Card ghế/phim/status; khóa khi khác suất/USED/CANCELLED |
 | Gate validate | ticketCode, showtimeId, ageDocumentChecked theo vé | POST validate rồi GET vé đọc lại; không bỏ showtimeId khi lỗi | Vé USED và không cho dùng lại |
 | Refund eligibility | Loại mã và code | Gửi đúng một bookingCode/ticketCode, map row/seatNumber/reasonCode | Các vé có eligible/refundableAmount |
-| Manager approve | username, PIN, bookingId, ticketIds, reason, cashConfirmed | Dùng phiên Staff gọi `/manager-overrides`, xóa PIN sau submit | Token 64 hex, expiresAt, approvedRefundAmount trong dialog |
-| Refund commit | Payload đã duyệt và token | Gửi `/refunds`; giữ token khi mất response để retry cùng yêu cầu | Refund amount hoặc yêu cầu duyệt lại khi token hết hiệu lực |
+| Manager approve | username, PIN, bookingId, ticketIds, reason | Dùng phiên Staff gọi `/manager-overrides`, xóa PIN sau submit | Token 64 hex, expiresAt, approvedRefundAmount; chưa xác nhận bàn giao cash |
+| Cash handover | overrideToken | Sau khi Cash Float đã qua Manager → Staff → khách, gọi `/manager-overrides/cash-confirmation` | cashConfirmedAt lưu riêng trước refund transaction |
+| Refund commit | Payload đã duyệt và token | Chỉ gửi `/refunds` sau xác nhận cash; giữ token khi mất response để retry cùng yêu cầu | RefundResponse; retry sau expiry được nếu handover đã xác nhận trong hạn |
 
 Modal native ngăn thay lựa chọn ngoài dialog. Đóng modal bỏ approval khỏi frontend. Không đưa PIN/token vào URL/storage. [refunds.ts](../../frontend/shared/src/api/refunds.ts) và [pos.ts](../../frontend/shared/src/api/pos.ts) là contract gọi backend, không fallback sang endpoint khác.
+
+Manager Dashboard gọi `/reports/payment-exceptions` để liệt kê đơn đã thu tiền nhưng chưa cấp vé. Queue có retry đọc và lý do; nó không tự hoàn tiền, đổi suất hoặc phát hành vé.
 
 ## 8. Manager CRUD, kho và giá
 
@@ -128,7 +131,7 @@ Modal native ngăn thay lựa chọn ngoài dialog. Đóng modal bỏ approval k
 
 ## 9. Báo cáo và primitives
 
-[ReportsPage](../../frontend/shared/src/pages/reports/ReportsPage.tsx) gọi [reportApi](../../frontend/shared/src/api/reports.ts) cho bảy loại endpoint; ranking gọi hai chiều ASC/DESC nên có tám vùng. Mỗi `Region` có useQuery, loading/error/retry độc lập. Kỳ từ ngày/tháng/range được đưa vào key để không tái dùng dữ liệu kỳ cũ. Adapter kiểm tra period và shape mảng cần thiết, không phải schema validator đầy đủ cho mọi field.
+[ReportsPage](../../frontend/shared/src/pages/reports/ReportsPage.tsx) gọi [reportApi](../../frontend/shared/src/api/reports.ts) cho báo cáo tổng hợp và time-series theo thời điểm thu/hoàn; ranking gọi hai chiều ASC/DESC. Mỗi `Region` có useQuery, loading/error/retry độc lập. Kỳ từ ngày/tháng/range được đưa vào key để không tái dùng dữ liệu kỳ cũ. Adapter kiểm tra period và shape mảng cần thiết, không phải schema validator đầy đủ cho mọi field.
 
 Output gồm revenue gross/refund/net/exception, breakdown vé/F&B, channels, ticket count, occupancy từng suất, ranking cao/thấp và inventory alerts hiện tại. Dùng `netRevenue` từ server, không trừ refund lần nữa. Mỗi response mang period/asOf riêng; tám request không có một transaction snapshot chung.
 

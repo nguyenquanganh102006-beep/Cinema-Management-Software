@@ -22,7 +22,7 @@ export DEMO_PASSWORD="G5-$(openssl rand -hex 12)" DEMO_MANAGER_PIN=123456 JWT_SE
 export TEST_VNPAY_HASH_SECRET="$(openssl rand -hex 32)" VNPAY_TMN_CODE=G5TEST
 export VNPAY_HASH_SECRET="$TEST_VNPAY_HASH_SECRET" VNPAY_PAY_URL=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
 export VNPAY_RETURN_URL=http://localhost:3003/payments/vnpay/return VNPAY_IPN_URL=http://localhost:8080/api/v1/payments/vnpay/ipn
-export CINEMA_BANK_NAME=TestBank CINEMA_BANK_ACCOUNT=0123456789
+export CINEMA_BANK_NAME=VietinBank CINEMA_BANK_BIN=970415 CINEMA_BANK_ACCOUNT=0123456789
 (cd "$project_root/backend" && bash mvnw -B -ntp verify) > "$task_dir/backend-verify.log" 2>&1
 java -jar "$project_root/backend/target/cms-0.1.0-SNAPSHOT.jar" --spring.profiles.active=local > "$task_dir/backend-live.log" 2>&1 &
 backend_pid=$!

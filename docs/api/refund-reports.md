@@ -19,14 +19,26 @@ reasonCode, refundableAmount. Tra được cả đơn ONLINE, không làm lộ p
   "scope": "REFUND_APPROVAL",
   "bookingId": 1001,
   "ticketIds": [101, 102],
-  "reason": "Khách yêu cầu hoàn vé",
-  "cashConfirmed": true
+  "reason": "Khách yêu cầu hoàn vé"
 }
 ```
 
-PIN gồm 6–12 chữ số như cấu hình Manager hiện tại. Response: overrideToken, expiresAt, approvedRefundAmount. TTL 180 giây, ràng buộc
-đúng phiên Staff, Booking, vé, lý do, số tiền snapshot. cashConfirmed là Manager
-xác nhận đã giao tiền tại POS. Không nhận amount hoặc managerId do client quyết định.
+PIN gồm 6–12 chữ số như cấu hình Manager hiện tại. Response: overrideToken, expiresAt,
+approvedRefundAmount. TTL 180 giây, ràng buộc đúng phiên Staff, Booking, vé, lý do và
+số tiền snapshot. Duyệt chỉ cấp quyền hoàn, chưa xác nhận đã giao tiền.
+
+Manager lấy và đếm đủ tiền từ Cash Float, giao cho Staff, rồi Staff giao cho khách.
+Sau khi khách đã nhận tiền, Manager xác nhận hoàn tất bàn giao trong hệ thống:
+
+`POST /manager-overrides/cash-confirmation`, STAFF:
+
+```json
+{ "overrideToken": "<token từ bước duyệt>" }
+```
+
+Endpoint kiểm tra lại phiên Staff, thời hạn duyệt và Manager còn ACTIVE, rồi lưu
+cashConfirmedAt cùng audit event. Approval hết hạn trước xác nhận sẽ bị từ chối; không
+được ghi nhận giao tiền hồi tố. Không nhận amount hoặc managerId do client quyết định.
 
 `POST /refunds`, STAFF:
 
@@ -35,8 +47,7 @@ xác nhận đã giao tiền tại POS. Không nhận amount hoặc managerId do
   "bookingId": 1001,
   "ticketIds": [101, 102],
   "reason": "Khách yêu cầu hoàn vé",
-  "overrideToken": "<token từ bước duyệt>",
-  "cashConfirmed": true
+  "overrideToken": "<token từ bước duyệt>"
 }
 ```
 
@@ -45,14 +56,16 @@ cashConfirmedAt, refundStatus=NONE/PARTIAL/FULL. Cùng token+payload trả cùng
 sau commit; không tạo lần hoàn mới. Payload/phiên khác bị chặn. IDs trùng hoặc
 khác Booking bị từ chối. Không hoàn USED/CANCELLED, dưới 30 phút hoặc chưa PAID.
 Đúng 30 phút vẫn hợp lệ. F&B giữ nguyên; CASH/VIETQR/GATEWAY_ONLINE đều hoàn cash.
+Refund chỉ bắt đầu sau khi Manager đã lưu xác nhận bàn giao. Nếu ghi refund thất bại
+sau khi xác nhận tiền, có thể retry cùng token và payload sau TTL; không giao tiền lần nữa.
 
 | HTTP | Error code / trường hợp |
 |---|---|
-| 400 | VALIDATION_ERROR: IDs/input/reason/cash confirmation/scope không hợp lệ |
+| 400 | VALIDATION_ERROR: IDs/input/reason/scope không hợp lệ |
 | 401 | AUTH_TOKEN_INVALID / AUTH_TOKEN_EXPIRED |
 | 403 | ACCESS_DENIED, MANAGER_PIN_INVALID, MANAGER_OVERRIDE_REQUIRED, MANAGER_OVERRIDE_EXPIRED, MANAGER_OVERRIDE_MISMATCH |
 | 404 | BOOKING_NOT_FOUND |
-| 409 | REFUND_NOT_ELIGIBLE (inventory lệch), RESOURCE_CONFLICT (DB constraint), SEAT_UPDATE_CONFLICT (lock conflict) |
+| 409 | REFUND_CASH_NOT_CONFIRMED, REFUND_NOT_ELIGIBLE (inventory lệch), RESOURCE_CONFLICT (DB constraint), SEAT_UPDATE_CONFLICT (lock conflict) |
 | 422 | REFUND_NOT_ELIGIBLE, REFUND_DEADLINE_PASSED, TICKET_ALREADY_CANCELLED, TICKET_NOT_REFUNDABLE |
 
 `/pos/bookings` vẫn chỉ trả POS; summary refundStatus nay là NONE/PARTIAL/FULL,
@@ -72,9 +85,13 @@ Mỗi report theo kỳ có period: from, to, timezone, basis, asOf.
 | `/reports/revenue-breakdown` | ticketRevenue (gross), concessionRevenue, ticketRefundAmount, netTicketRevenue, netRevenue |
 | `/reports/revenue-by-channel` | posRevenue/onlineRevenue (net); channels: channel/grossRevenue/refundAmount/netRevenue |
 | `/reports/ticket-count` | ticketCount (VALID+USED), grossTicketCount, cancelledTicketCount |
+| `/reports/time-series?from=...&to=...` | points theo giờ/ngày/tuần/tháng: grossRevenue, refundAmount, netRevenue, transactions, ticketCount, refunds; transaction-date cash flow |
 | `/reports/occupancy` | seatsSold, totalSeats, occupancyRate; showtimes có showtimeId/movieId/startsAt và cùng số liệu |
 | `/reports/inventory-alerts` | itemId, itemName, stockQuantity, lowStockThreshold, status; không có from/to |
 | `/reports/movies/ranking?from=...&to=...&direction=DESC&limit=5` | direction; movies: movieId/title/ticketCount/totalRevenue (gross)/refundAmount/revenue (net) |
+| `/reports/payment-exceptions?limit=50` | MANAGER queue: paid bookings in EXCEPTION_PENDING_DECISION with bookingCode, movie/room/showtime, amount, paidAt and reasonCode; limit 1..100 |
+
+Time-series uses `TRANSACTION_DATE`: paid amounts group by `payments.paid_at`, refunds by `refund_records.created_at`, and net per bucket equals paid minus refunded in that bucket. A one-day range is hourly; up to 45 days is daily; up to 180 days is weekly; longer ranges are monthly. Maximum range is 366 days.
 
 Revenue/count/ranking có basis=PAYMENT_COHORT: chọn payment PAID của Booking PAID
 theo paid_at, trừ refund đã ghi đến asOf cho các đơn đó. Không phải cash-flow theo
@@ -89,5 +106,9 @@ lấy tổng BOOKED / tổng ghế. Count/state và cohort cũ có thể thay đ
 Stock alerts là tồn kho hiện tại, chỉ món có inventory thật, combo không có dòng
 stock riêng. EXCEPTION_PENDING_DECISION đã thu tiền được báo riêng, chưa phải doanh
 thu hàng hóa đã giao.
+
+Payment exception queue giúp Manager thấy các đơn đã thu tiền nhưng chưa phát hành vé.
+Endpoint không tự hoàn tiền, phát hành vé hay quyết định đổi suất; xử lý ngoại lệ vẫn
+cần thao tác vận hành riêng.
 
 Chi tiết chính sách tại [decision F](../decisions/006-refund-reports.md).

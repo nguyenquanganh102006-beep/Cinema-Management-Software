@@ -1,6 +1,4 @@
 import { ApiError, request, requestPage, query } from "../api";
-import { catalogApi } from "./catalog";
-import { holdsApi } from "./holds";
 import type { Booking, BookingInput, Payment, Ticket } from "../types";
 
 type RawBooking = Omit<Partial<Booking>, "tickets" | "showtime" | "payment" | "concessions" | "plannedSeats"> & {
@@ -14,6 +12,8 @@ type RawBooking = Omit<Partial<Booking>, "tickets" | "showtime" | "payment" | "c
   holdUntil?: string;
   serverTime?: string;
   showtimeId?: number;
+  movieTitle?: string;
+  showtimeStartsAt?: string;
   showtime?: Partial<Booking["showtime"]> & { showtimeId?: number };
   plannedSeats?: { seatId: number; seatLabel?: string; price: number }[];
   seats?: {
@@ -57,7 +57,7 @@ export function normalizeTicket(
     t.seatLabel ??
     (t.seatRow !== undefined && t.seatNumber !== undefined
       ? `${t.seatRow}${t.seatNumber}`
-      : `Ghế #${t.seatId ?? ""}`);
+      : `Ghế ${t.seatId ?? ""}`);
   return {
     ticketId: Number(t.ticketId ?? t.seatId ?? 0),
     ticketCode: code,
@@ -84,7 +84,7 @@ export function normalizeBooking(
   const showtime: Booking["showtime"] = {
     id: Number(showRaw?.id ?? showRaw?.showtimeId ?? raw.showtimeId ?? 0),
     movieId: Number(showRaw?.movieId ?? 0),
-    movieTitle: showRaw?.movieTitle ?? fallback?.showtime?.movieTitle ?? "",
+    movieTitle: showRaw?.movieTitle ?? raw.movieTitle ?? fallback?.showtime?.movieTitle ?? "",
     ageRating: showRaw?.ageRating ?? fallback?.showtime?.ageRating ?? "P",
     durationMinutes: Number(
       showRaw?.durationMinutes ?? fallback?.showtime?.durationMinutes ?? 0,
@@ -98,6 +98,7 @@ export function normalizeBooking(
       "STANDARD_2D",
     startTime:
       showRaw?.startTime ??
+      raw.showtimeStartsAt ??
       fallback?.showtime?.startTime ??
       "",
     endTime:
@@ -136,11 +137,18 @@ export function normalizeBooking(
     .map((t) => normalizeTicket(t, showtime));
 
   const seatLabelById = new Map<number, string>();
+  for (const s of fallback?.plannedSeats ?? []) {
+    if (s.seatLabel) seatLabelById.set(Number(s.seatId), s.seatLabel);
+  }
   for (const s of seatLines) {
-    if (s.seatLabel) seatLabelById.set(s.seatId, s.seatLabel);
+    // Server-provided row/number labels win, while a generic label in a create
+    // response must not replace the label already present in the booking flow.
+    if (s.seatLabel && !/^Ghế(?:\s|$)/i.test(s.seatLabel)) {
+      seatLabelById.set(s.seatId, s.seatLabel);
+    }
   }
   for (const t of issuedTickets) {
-    if (t.seatLabel && !t.seatLabel.startsWith("Ghế #"))
+    if (t.seatLabel && !/^Ghế(?:\s|$)/i.test(t.seatLabel))
       seatLabelById.set(t.seatId, t.seatLabel);
   }
 
@@ -164,6 +172,9 @@ export function normalizeBooking(
     if (label) t.seatLabel = label;
   }
 
+  const fallbackConcessionNames = new Map(
+    (fallback?.concessions ?? []).map((c) => [Number(c.itemId), c.name]),
+  );
   const concessions = (
     (raw.concessions ?? fallback?.concessions ?? []) as {
       itemId: number;
@@ -175,7 +186,11 @@ export function normalizeBooking(
     }[]
   ).map((c) => ({
     itemId: Number(c.itemId),
-    name: c.name ?? c.itemName ?? `Món #${c.itemId}`,
+    name:
+      c.name ??
+      c.itemName ??
+      fallbackConcessionNames.get(Number(c.itemId)) ??
+      `Món #${c.itemId}`,
     quantity: Number(c.quantity),
     unitPriceSnapshot: Number(c.unitPriceSnapshot ?? c.unitPrice ?? 0),
   }));
@@ -268,18 +283,10 @@ export const bookingsApi = {
       if (!(error instanceof ApiError) || error.status !== 409 || error.code !== "BOOKING_ALREADY_EXISTS"
         || typeof id !== "string" || !/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id))) throw error;
       const raw = await request<RawBooking>(`/bookings/${id}`, { token });
-      if (raw.status !== "PENDING") return bookingsApi.get(Number(id), token, raw.channel === "POS" || context?.channel === "POS");
-      const showtimeId = Number(raw.showtimeId ?? raw.showtime?.id ?? raw.showtime?.showtimeId);
-      const [showtime, map, items] = await Promise.all([
-        catalogApi.showtime(showtimeId, token), holdsApi.map(showtimeId, token), catalogApi.concessions(token),
-      ]);
-      const result = normalizeBooking(raw, { showtime });
-      result.plannedSeats = result.plannedSeats.map((seat) => {
-        const physical = map.seats.find((s) => s.seatId === seat.seatId);
-        return { ...seat, seatLabel: physical ? `${physical.row}${physical.number}` : seat.seatLabel };
-      });
-      result.concessions = result.concessions.map((line) => ({ ...line, name: items.find((item) => item.id === line.itemId)?.name ?? line.name }));
-      return result;
+      const pos = raw.channel === "POS" || context?.channel === "POS";
+      // Read the role-specific detail, which contains showtime and line snapshots.
+      // A deactivated showtime must not make recovery depend on a sale-only seat map.
+      return bookingsApi.get(Number(id), token, pos, undefined, context);
     }
   },
   get: async (

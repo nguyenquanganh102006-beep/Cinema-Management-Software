@@ -87,7 +87,7 @@ describe("mock contracts matched to backend DTOs", () => {
     expect((await call(`/bookings/${booking.bookingId}/payments/cash`, staff, "POST", { cashReceived: 500000, ageDocumentChecked: true })).status).toBe(200);
     const eligibility = (await (await call(`/refunds/eligibility?bookingCode=${booking.bookingCode}`, staff)).json()).data;
     expect(eligibility.tickets).toHaveLength(2);
-    const intent = { bookingId: eligibility.bookingId, ticketIds: eligibility.tickets.map((t: { ticketId: number }) => t.ticketId), reason: " Contract refund ", cashConfirmed: true };
+    const intent = { bookingId: eligibility.bookingId, ticketIds: eligibility.tickets.map((t: { ticketId: number }) => t.ticketId), reason: " Contract refund " };
     const approval = { ...intent, username: "manager01", pin: "123456", scope: "REFUND_APPROVAL" };
     expect((await call("/manager-overrides", staff, "POST", { ...approval, scope: "OLD_SCOPE" })).status).toBe(400);
     expect((await call("/manager-overrides", staff, "POST", { ...approval, ticketIds: [...intent.ticketIds, intent.ticketIds[0]] })).status).toBe(400);
@@ -95,6 +95,8 @@ describe("mock contracts matched to backend DTOs", () => {
     const approved = (await (await call("/manager-overrides", staff, "POST", approval)).json()).data;
     expect(approved.overrideToken).toMatch(/^[a-f0-9]{64}$/);
     expect(Date.parse(approved.expiresAt) - approvedAt).toBe(180000);
+    const confirmation = await call("/manager-overrides/cash-confirmation", staff, "POST", { overrideToken: approved.overrideToken });
+    expect(confirmation.status).toBe(200);
     const payload = { ...intent, reason: intent.reason.trim(), ticketIds: [...intent.ticketIds].reverse(), overrideToken: approved.overrideToken };
     const mismatch = await call("/refunds", staff, "POST", { ...payload, reason: "Changed intent" });
     expect(mismatch.status).toBe(403);
@@ -111,10 +113,10 @@ describe("mock contracts matched to backend DTOs", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const { call, staff } = await setup();
     const eligibility = (await (await call("/refunds/eligibility?bookingCode=BK-POS-DEMO", staff)).json()).data;
-    const intent = { bookingId: eligibility.bookingId, ticketIds: [eligibility.tickets[0].ticketId], reason: "Contract refund", cashConfirmed: true };
+    const intent = { bookingId: eligibility.bookingId, ticketIds: [eligibility.tickets[0].ticketId], reason: "Contract refund" };
     const approved = (await (await call("/manager-overrides", staff, "POST", { ...intent, username: "manager01", pin: "123456", scope: "REFUND_APPROVAL" })).json()).data;
     vi.setSystemTime(Date.now() + 180000);
-    const expired = await call("/refunds", staff, "POST", { ...intent, overrideToken: approved.overrideToken });
+    const expired = await call("/manager-overrides/cash-confirmation", staff, "POST", { overrideToken: approved.overrideToken });
     expect(expired.status).toBe(403);
     expect((await expired.json()).code).toBe("MANAGER_OVERRIDE_EXPIRED");
     vi.setSystemTime(Date.now() + 3600000);

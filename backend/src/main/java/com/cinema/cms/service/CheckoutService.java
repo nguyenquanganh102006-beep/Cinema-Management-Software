@@ -13,8 +13,8 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Completes a PENDING Booking in one transaction. Cash, VietQR and the VNPay IPN all call
- * {@link #finalizePaid(Long, PaymentMethod, BigDecimal)}.
+ * Completes a PENDING Booking in one transaction. Cash and VietQR use finalizePaid; VNPay IPN
+ * uses finalizePaidOnline so an expired hold can be recovered only when the seats remain free.
  */
 @Service
 public class CheckoutService {
@@ -62,6 +62,18 @@ public class CheckoutService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public CheckoutResult finalizePaid(
             Long bookingId, PaymentMethod method, BigDecimal expectedAmount) {
+        return finalizePaid(bookingId, method, expectedAmount, false);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public CheckoutResult finalizePaidOnline(
+            Long bookingId, PaymentMethod method, BigDecimal expectedAmount) {
+        return finalizePaid(bookingId, method, expectedAmount, true);
+    }
+
+    private CheckoutResult finalizePaid(
+            Long bookingId, PaymentMethod method, BigDecimal expectedAmount,
+            boolean recoverExpiredOnlineHold) {
         if (bookingId == null || bookingId <= 0) throw notFound();
         if (method == null)
             throw new ApiException(400, "VALIDATION_ERROR", "Phương thức thanh toán không hợp lệ");
@@ -80,12 +92,13 @@ public class CheckoutService {
         if (plannedSeatIds.isEmpty()) throw invalidBookingState();
 
         // Must happen before any other read of ShowtimeSeat: booking clears the hold token.
-        List<ShowtimeSeat> bookedSeats =
-                checkoutSeats.markBooked(
-                        booking.getHoldToken(),
-                        booking.getHoldOwner(),
-                        booking.getShowtimeId(),
-                        plannedSeatIds);
+        List<ShowtimeSeat> bookedSeats = recoverExpiredOnlineHold
+                ? checkoutSeats.markBookedForOnlineIpn(
+                        booking.getHoldToken(), booking.getHoldOwner(),
+                        booking.getShowtimeId(), plannedSeatIds)
+                : checkoutSeats.markBooked(
+                        booking.getHoldToken(), booking.getHoldOwner(),
+                        booking.getShowtimeId(), plannedSeatIds);
 
         // Re-price tickets from the current rules. The client's quoted amount is authoritative:
         // never silently replace it when the price changed.

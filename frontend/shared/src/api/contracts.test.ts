@@ -44,6 +44,7 @@ describe("API contracts and recovery", () => {
       if (url.includes("/concessions?")) return ok({ items: [{ id: 5, name: "Stored snack", price: 99000, active: true }], page: 0, size: 100, totalPages: 1, totalElements: 1 });
       if (url.endsWith("/showtimes/9/seats")) return ok({ seats: [{ seatId: 2, row: "A", number: 2 }] });
       if (url.endsWith("/showtimes/9")) return ok({ id: 9, movieTitle: "Stored film", ageRating: "T18", movieId: 1, auditoriumId: 2, startTime: "2030-01-01T10:00:00Z" });
+      if (url.endsWith("/me/bookings/3")) return ok({ bookingId: 3, bookingCode: "BK-3", channel: "ONLINE", showtimeId: 9, showtime: { id: 9, movieTitle: "Stored film", ageRating: "T18", movieId: 1, auditoriumId: 2, auditoriumName: "Stored room", auditoriumType: "IMAX", startTime: "2030-01-01T10:00:00Z" }, status: "PENDING", seats: [{ seatId: 2, seatRow: "A", seatNumber: 2, quotedPrice: 70000 }], concessions: [{ itemId: 5, name: "Stored snack", quantity: 2, unitPriceSnapshot: 42000 }], totalAmount: 154000 });
       return ok({ bookingId: 3, bookingCode: "BK-3", showtimeId: 9, status: "PENDING", tickets: [{ seatId: 2, price: 70000 }], concessions: [{ itemId: 5, quantity: 2, unitPriceSnapshot: 42000 }], totalAmount: 154000 });
     });
     vi.stubGlobal("fetch", fetch);
@@ -107,13 +108,16 @@ it("sends exactly one lookup type and maps backend eligibility without invented 
   expect(fetch.mock.calls[0][0]).toMatch(/eligibility\?bookingCode=BK-ONE$/);
   expect(result.tickets[0]).toMatchObject({ seatLabel: "C2", refundableAmount: 0, eligible: false });
 });
-it("binds approval and repeat refund to the identical cash-confirmed intent", async () => {
-  const fetch = vi.fn().mockImplementation(async () => ok({ refundId: 1, overrideToken: "a".repeat(64) }));
+it("records Manager cash confirmation before refund and retries the identical refund intent", async () => {
+  const fetch = vi.fn().mockImplementation(async () => ok({ refundId: 1, overrideToken: "a".repeat(64), cashConfirmedAt: "2030-01-01T00:00:00Z" }));
   vi.stubGlobal("fetch", fetch);
   const intent = { bookingId: 1, ticketIds: [2, 3], reason: "Khách yêu cầu" };
   await refundsApi.override({ ...intent, username: "manager", pin: "123456" }, "staff");
-  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ ...intent, username: "manager", pin: "123456", scope: "REFUND_APPROVAL", cashConfirmed: true });
-  const payload = { ...intent, cashConfirmed: true, overrideToken: "a".repeat(64) };
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ ...intent, username: "manager", pin: "123456", scope: "REFUND_APPROVAL" });
+  const overrideToken = "a".repeat(64);
+  await refundsApi.confirmCash(overrideToken, "staff");
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ overrideToken });
+  const payload = { ...intent, overrideToken };
   await refundsApi.refund(payload, "staff"); await refundsApi.refund(payload, "staff");
-  expect(fetch.mock.calls[1][1].body).toBe(fetch.mock.calls[2][1].body);
+  expect(fetch.mock.calls[2][1].body).toBe(fetch.mock.calls[3][1].body);
 });

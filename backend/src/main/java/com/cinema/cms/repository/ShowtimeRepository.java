@@ -13,9 +13,9 @@ public interface ShowtimeRepository extends JpaRepository<Showtime, Long>, JpaSp
         com.cinema.cms.entity.Movie getMovie();
         com.cinema.cms.entity.Auditorium getAuditorium();
     }
-    @Query(value = "select s as showtime, m as movie, a as auditorium from Showtime s join Movie m on m.id=s.movieId join Auditorium a on a.id=s.auditoriumId where (:movie is null or s.movieId=:movie) and (:room is null or s.auditoriumId=:room) and (cast(:start as timestamp) is null or s.startTime>=:start) and (cast(:until as timestamp) is null or s.startTime<:until)",
-        countQuery = "select count(s) from Showtime s where (:movie is null or s.movieId=:movie) and (:room is null or s.auditoriumId=:room) and (cast(:start as timestamp) is null or s.startTime>=:start) and (cast(:until as timestamp) is null or s.startTime<:until)")
-    org.springframework.data.domain.Page<Listing> listing(@Param("movie") Long movie, @Param("room") Integer room, @Param("start") Instant start, @Param("until") Instant until, org.springframework.data.domain.Pageable pageable);
+    @Query(value = "select s as showtime, m as movie, a as auditorium from Showtime s join Movie m on m.id=s.movieId join Auditorium a on a.id=s.auditoriumId where (:movie is null or s.movieId=:movie) and (:room is null or s.auditoriumId=:room) and (cast(:start as timestamp) is null or s.startTime>=:start) and (cast(:until as timestamp) is null or s.startTime<:until) and (:includeInactive = true or (m.active = true and a.active = true))",
+        countQuery = "select count(s) from Showtime s join Movie m on m.id=s.movieId join Auditorium a on a.id=s.auditoriumId where (:movie is null or s.movieId=:movie) and (:room is null or s.auditoriumId=:room) and (cast(:start as timestamp) is null or s.startTime>=:start) and (cast(:until as timestamp) is null or s.startTime<:until) and (:includeInactive = true or (m.active = true and a.active = true))")
+    org.springframework.data.domain.Page<Listing> listing(@Param("movie") Long movie, @Param("room") Integer room, @Param("start") Instant start, @Param("until") Instant until, @Param("includeInactive") boolean includeInactive, org.springframework.data.domain.Pageable pageable);
     boolean existsByAuditoriumId(Integer auditoriumId);
 
     // Scalar read after inventory locks: do not reuse an Entity loaded before waiting.

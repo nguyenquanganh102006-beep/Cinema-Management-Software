@@ -69,7 +69,7 @@ export async function chooseSeat(page: Page, pos: boolean) {
     await page.getByRole("button", { name: "Chọn suất" }).click();
   }
   await page
-    .getByRole("button", { name: "A1 · STANDARD · Trống", exact: true })
+    .getByRole("button", { name: "A1, STANDARD, Trống", exact: true })
     .click();
   await page.getByRole("button", { name: "Giữ các ghế đã chọn" }).click();
   await page.getByRole("link", { name: "Tiếp tục thanh toán" }).click();
@@ -79,6 +79,6 @@ export async function chooseSeat(page: Page, pos: boolean) {
     })
     .check();
   await page
-    .getByRole("button", { name: "Tạo đơn · lấy tổng thanh toán" })
+    .getByRole("button", { name: "Tạo đơn, lấy tổng thanh toán" })
     .click();
 }

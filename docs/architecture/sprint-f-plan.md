@@ -2,6 +2,8 @@
 
 Ngày rà soát: 09/11/2026, Asia/Ho_Chi_Minh. Người dùng xác nhận “sprint-7” là phần backend còn lại Refund / Reports (Sprint F). Tài liệu này chuẩn bị triển khai, chưa phải kết quả nghiệm thu hay quyết định nghiệp vụ đã được nhóm phê duyệt. Các mục ghi **đề xuất** là phần làm rõ hoặc bổ sung contract nguồn.
 
+> Đây là ghi nhận tại thời điểm lập kế hoạch, không phải mô tả code hiện tại. Ví dụ, dòng dưới về `refundStatus` là hiện trạng trước Sprint F; API hiện trả `NONE`, `PARTIAL` hoặc `FULL` theo refund records. Xem [quyết định Checkout/Ticket hiện hành](../decisions/005-checkout-ticket.md) và [POS history API](../api/pos-history.md).
+
 ## 1. Nguồn và phạm vi rà soát
 
 Đường dẫn dưới đây tính từ thư mục workspace cha của repository.
@@ -44,7 +46,7 @@ Không tự mở rộng F thành frontend, voucher, BOM, ngân hàng hoàn tiề
 - `TicketRepository` có khóa theo ticketCode, chưa có khóa toàn bộ tập ticketIds theo thứ tự xác định.
 - Checkout E khóa Booking trước rồi ghế; không gọi HTTP hay dùng REQUIRES_NEW trong transaction nghiệp vụ.
 - Booking/Payment giữ số tiền gốc và paidAt; Ticket/F&B có snapshot. Payment chỉ PENDING → PAID/FAILED.
-- `PosBookingService` chỉ trả channel POS; `refundStatus` trong summary đang null. Không dùng endpoint này làm lối duy nhất để refund vé ONLINE.
+- Lúc lập kế hoạch, `PosBookingService` chỉ trả channel POS và `refundStatus` trong summary còn null. Không dùng endpoint này làm lối duy nhất để refund vé ONLINE.
 - `InventoryService.alerts` và `/inventory/alerts` đã có. Combo không có stock riêng, không cộng thêm dòng tồn kho giả cho combo.
 - `Clock`, timezone `ShowtimeTimeService.BUSINESS_ZONE`, ApiResponse/ApiErrorResponse, JWT/RBAC, PostgreSQL/Testcontainers, MutableClock và fixture E có thể tái sử dụng.
 
@@ -55,14 +57,14 @@ Không tự mở rộng F thành frontend, voucher, BOM, ngân hàng hoàn tiề
 | Revenue trừ refund hai lần | G1 viết valid_ticket_revenue + F&B - refund nhưng đồng thời yêu cầu chỉ trừ refund một lần | Gross phải gồm vé từng bán, kể cả vé đã CANCELLED; net = gross - refund. Không lọc CANCELLED khỏi gross rồi trừ refund lần nữa |
 | Ngày ghi nhận refund | G4 nói revenue theo kỳ thanh toán, chưa định nghĩa rõ refund khác kỳ | Đề xuất mặc định theo cohort payment.paid_at: chọn các đơn thanh toán trong kỳ và trừ các refund của các đơn đó đến thời điểm truy vấn. Ghi rõ đây là doanh thu đơn hàng đã điều chỉnh, có thể thay đổi sau refund; không gọi là dòng tiền thu/chi trong kỳ. Nếu cần cash-flow, dùng payment.paid_at cho thu và cash_confirmed_at cho chi trong một chế độ riêng, không trộn hai cách |
 | Phiên gọi Override | G4 gán role MANAGER nhưng G1/G2 yêu cầu popup ngay trong phiên STAFF | Endpoint yêu cầu STAFF đang đăng nhập; service xác thực riêng Manager username/PIN ACTIVE. Không cấp Manager JWT hoặc đổi phiên Staff. Đây là điều chỉnh contract để thực hiện đúng UC-17 |
-| Cash confirmation bị thiếu | G1/G2 yêu cầu Manager xác nhận đã giao tiền; JSON G4 không có cờ | Bổ sung cashConfirmed bắt buộc true vào ý định được Manager duyệt; backend timestamp; token ràng buộc nội dung. Không mặc định true khi thiếu |
+| Cash confirmation bị thiếu | UC-17/G2 yêu cầu Manager xác nhận sau khi khách đã nhận tiền; JSON G4 không mô tả bước này | Tách thành POST manager-overrides/cash-confirmation sau khi giao tiền; lưu timestamp/audit riêng. Approval chưa xác nhận cash; POST refunds chỉ chạy sau cash confirmation |
 | Ticket status | G1/SMD chỉ VALID/CANCELLED; DB/G5/E có USED | Giữ VALID/USED/CANCELLED của E. USED không được refund, kể cả còn hơn 30 phút trước giờ chiếu |
 | Sweetbox refund | BR-04 cấm bán nửa cặp; BR-33 cho partial theo từng vé; decision E để mở | Đề xuất cho refund từng Ticket theo FR-59, không tự chọn thêm vé ngoài yêu cầu. Một ghế hoàn lẻ có thể chưa bán lại được vì hold yêu cầu cả pair AVAILABLE. Phải ghi rõ giới hạn này; nếu nhóm muốn hoàn cả cặp thì chốt riêng và đổi acceptance, không ngầm suy diễn từ rule bán |
 | Booking sau refund | E coi PAID là terminal; F chưa có trạng thái PARTIALLY_REFUNDED | Giữ Booking/Payment PAID và số tiền gốc; tính refundStatus riêng NONE/PARTIAL/FULL từ record/vé. Không dùng Booking CANCELLED để biểu diễn đã hoàn vé vì còn F&B và lịch sử thu tiền |
 | VNPay đã thu tiền, chưa có vé | E có Payment PAID + Booking EXCEPTION_PENDING_DECISION | Không cho dùng ticket refund khi không có Ticket hợp lệ. Reports tách exceptionPaidAmount, không ghi thành doanh thu vé/F&B đã giao. Workflow xử lý tài chính riêng nằm ngoài core F |
 | Ranking | G4 chỉ desc; G1 yêu cầu cả top và thấp | Hỗ trợ direction ASC/DESC và limit (mặc định 5, có giới hạn), tie-breaker movieId; nói rõ tập phim có giao dịch hay tất cả phim |
 | Diagram lỗi sao chép | SUC-01 DOCX ghi hậu điều kiện refund, không khớp hold; sequence diagram để business trong controller | Dùng FR/BR và 5-layer G4 làm căn cứ nghiệp vụ/kiến trúc; diagram là mô tả flow, không sao chép lỗi sang code |
-| Chính sách E khác G2 | G2 cho retry sau FAILED và late success tự book nếu ghế trống; E giữ FAILED terminal và park exception | Giữ hành vi E, không đổi chính sách payment trong Sprint F nếu chưa có yêu cầu riêng |
+| Chính sách E khác G2 | E giữ Payment FAILED terminal; G2 yêu cầu kiểm tra ghế khi late IPN sau expiry | Giữ FAILED terminal; late IPN khóa/recheck ghế, commit nếu còn trống, nếu đã bị lấy thì ghi exception và hiển thị Manager queue |
 
 Các đề xuất trên phải hiện thành quyết định F khi triển khai, cùng test minh họa; không mô tả chúng là điều đã được nguồn chốt.
 
@@ -73,8 +75,9 @@ Base `/api/v1`, wrapper `data` như hiện tại; không trả entity.
 | API | Quyền | Contract cần hoàn thiện |
 |---|---|---|
 | GET `/refunds/eligibility` | STAFF, MANAGER | Chính xác một trong bookingCode/ticketCode; trả bookingId/channel, showtime/time, toàn bộ ticket lines, eligible/reasonCode, snapshot/refundableAmount và serverTime. Không giới hạn kênh POS |
-| POST `/manager-overrides` | STAFF + xác thực Manager riêng | username, pin, scope=REFUND_APPROVAL, bookingId, ticketIds, reason, cashConfirmed=true. Trả overrideToken/expiresAt và approvedRefundAmount do backend tính |
-| POST `/refunds` | STAFF + override hợp lệ | bookingId, ticketIds, reason, overrideToken, cashConfirmed=true; phải khớp ý định đã duyệt. Trả refundId, bookingId, refundAmount, ticketIds, status=COMPLETED, cashConfirmedAt, refundStatus |
+| POST `/manager-overrides` | STAFF + xác thực Manager riêng | username, pin, scope=REFUND_APPROVAL, bookingId, ticketIds, reason. Trả overrideToken/expiresAt và approvedRefundAmount do backend tính; chưa xác nhận cash handover |
+| POST `/manager-overrides/cash-confirmation` | STAFF + token override hợp lệ | overrideToken; Manager xác nhận sau khi Cash Float đã được giao khách. Lưu cashConfirmedAt và audit event |
+| POST `/refunds` | STAFF + override hợp lệ và cash đã xác nhận | bookingId, ticketIds, reason, overrideToken; phải khớp ý định đã duyệt. Trả refundId, bookingId, refundAmount, ticketIds, status=COMPLETED, cashConfirmedAt, refundStatus |
 | GET `/reports/revenue` | MANAGER | from/to; totalRevenue (gross giao dịch hoàn tất), refundAmount, netRevenue; exceptionPaidAmount riêng nếu có |
 | GET `/reports/revenue-breakdown` | MANAGER | ticketRevenue, concessionRevenue là gross; bổ sung ticketRefundAmount/netTicketRevenue/netRevenue để không nhập nhằng |
 | GET `/reports/revenue-by-channel` | MANAGER | posRevenue/onlineRevenue phải ghi rõ gross/net; đề xuất trả thêm gross/refund/net theo từng channel, hai net cộng bằng netRevenue |
@@ -87,20 +90,20 @@ Ngày report là ISO YYYY-MM-DD trong Asia/Ho_Chi_Minh. Require cả from/to cho
 
 ## 6. Override và transaction
 
-Đề xuất token opaque ngẫu nhiên đủ mạnh, TTL 3 phút (nằm trong khoảng 2–5 phút của G4), một lần dùng; chỉ lưu SHA-256 hash. Không dùng JWT đăng nhập làm overrideToken. Binding gồm Staff userId/tokenId, Manager id/securityVersion, scope, bookingId, danh sách ticketIds đã chuẩn hóa, reason, cashConfirmed và số tiền backend duyệt. Không log PIN/token/request body.
+Token opaque ngẫu nhiên 32 byte, TTL 3 phút, một lần dùng; chỉ lưu SHA-256 hash. Không dùng JWT đăng nhập làm overrideToken. Binding gồm Staff userId/tokenId, Manager id/securityVersion, scope, bookingId, danh sách ticketIds đã chuẩn hóa, reason và số tiền backend duyệt. cashConfirmedAt được lưu riêng khi Manager xác nhận sau bàn giao. Không log PIN/token/request body.
 
 Lúc cấp token phải kiểm tra Manager role/status/PIN, Ticket/Payment và thời gian; kiểm lại Manager ACTIVE/securityVersion, phiên Staff và điều kiện vé khi consume. Token chưa dùng có thể retry sau rollback; token đã commit không tạo refund mới. Nếu response bị mất, trả record đã hoàn cho cùng token + cùng nội dung, không ghi thêm; token dùng với payload khác bị từ chối. Lưu consumed refundId để readback bền qua restart.
 
 Luồng refund một transaction READ_COMMITTED:
 
-1. Kiểm tra format, trùng ticketIds, reason độ dài <=255, cashConfirmed.
+1. Approval kiểm tra format, trùng ticketIds, reason độ dài <=255; cash confirmation là endpoint riêng và không nhận amount.
 2. Khóa bản ghi override, kiểm binding/expiry; nếu đã hoàn thì trả đúng kết quả cũ khi payload khớp.
 3. Khóa Booking; khóa các Ticket tăng dần ticketId; lấy lock trực tiếp, không preload entity trước lock.
 4. Đảm bảo tất cả Ticket thuộc Booking, đủ số lượng, VALID; Payment PAID, Booking PAID.
 5. Khóa các showtime_seats theo thứ tự showtimeId/seatId như D/E; kiểm ghế BOOKED và đúng liên kết Ticket. Gate chỉ khóa Ticket nên refund/gate phải tranh chấp trên cùng khóa Ticket.
 6. Lấy Clock sau khi đã chờ lock; kiểm lại startTime - now >= 30 phút (đúng 30 phút vẫn hợp lệ), account/token và số tiền snapshot.
 7. Ticket → CANCELLED rồi flush trước khi ghế có thể được bán lại; Seat → AVAILABLE; ghi refund_records + ticket links/audit; consume override trong cùng transaction.
-8. Commit. Lỗi bất kỳ bước nào rollback cả vé/ghế/record/token. Không giữ transaction trong lúc Manager đếm tiền, nhập PIN hay chờ thao tác người dùng; không có HTTP trong transaction.
+8. Commit. Lỗi bất kỳ bước nào rollback vé/ghế/record/token. Manager lấy/đếm/giao tiền và nhập xác nhận qua các request riêng, không giữ transaction trong lúc chờ thao tác người dùng; không có HTTP trong transaction.
 
 Tổng refund lấy sum(Ticket.priceSnapshot) của tập vé, không đọc giá hiện hành, không nhận final amount hay managerId từ client. Không sửa snapshot/Payment.amount/Booking.totalAmount, không hồi F&B hoặc stock. Bảo vệ vé cũ CANCELLED để request lặp không release nhầm ghế đã bán lại.
 
@@ -125,15 +128,15 @@ Report aggregate riêng từng nguồn trước khi join. Không join thẳng Ti
 
 | Nhóm test | Các ca bắt buộc |
 |---|---|
-| Migration | Database mới từ V1 đến V8 và nâng từ V7; constraint/token/ticket UNIQUE; refund_records có sẵn không bị tạo lại |
+| Migration | Database mới từ V1 đến V13; constraint/token/ticket UNIQUE; refund_records có sẵn không bị tạo lại; approval legacy chưa hoàn tiền không bị hiểu nhầm là đã giao cash; audit outcome đủ chỗ cho EXCEPTION_PENDING_DECISION |
 | Eligibility | POS/ONLINE; bookingCode/ticketCode; code không tồn tại; input thiếu/thừa; đúng 30 phút, dưới 30 phút; USED/CANCELLED; Payment PENDING/FAILED |
-| Override | PIN sai, Manager LOCKED/INACTIVE/không phải Manager/chưa có PIN; scope sai; hết hạn; phiên Staff khác; Manager bị khóa sau cấp; payload/amount bị đổi; không lộ hash/PIN/token |
-| Refund | Partial/full; Cash/VietQR/Online đều chi cash; snapshot không đổi sau tăng giá; không refund F&B; cashConfirmed thiếu/false; vé lẫn Booking, duplicate/empty IDs; reason không hợp lệ |
+| Override | PIN sai, Manager LOCKED/INACTIVE/không phải Manager/chưa có PIN; scope sai; hết hạn; phiên Staff khác; Manager bị khóa trước cash confirmation; payload/amount bị đổi; chưa xác nhận cash bị chặn; không lộ hash/PIN/token |
+| Refund | Partial/full; Cash/VietQR/Online đều chi cash; snapshot không đổi sau tăng giá; không refund F&B; cash handover xác nhận sau khi khách nhận tiền; retry refund sau TTL khi đã xác nhận; vé lẫn Booking, duplicate/empty IDs; reason không hợp lệ |
 | Atomicity | Ép lỗi sau cancel/release/before record; rollback cả Ticket/Seat/record/token; retry hợp lệ sau rollback |
 | Concurrency | Hai refund cùng vé; chồng một phần tập vé; một token dùng đồng thời; refund và gate scan; refund rồi bán lại, request refund cũ không nhả ghế mới |
 | Sweetbox | Hai vé độc lập; ca hoàn một nửa theo chính sách được chọn; khả năng hold/bán lại sau refund không bypass pair rule |
 | Revenue | Gross 2 vé ×70k + F&B30k =170k; refund 1 vé70k → net100k; không thành30k. Hai dòng F&B và nhiều refund không nhân SUM; partial/full; khác kỳ; refund tại POS của đơn ONLINE vẫn trừ channel ONLINE |
-| Reports | VALID/USED/CANCELLED; exclude PENDING/FAILED; exception paid tách riêng; from/to cùng ngày và biên UTC+7; empty/zero denominator; ranking top/bottom/tie; breakdown cộng khớp tổng |
+| Reports | VALID/USED/CANCELLED; exclude PENDING/FAILED; exception paid tách riêng và vào Manager queue; from/to cùng ngày và biên UTC+7; empty/zero denominator; ranking top/bottom/tie; breakdown cộng khớp tổng |
 | Occupancy | Refund giảm BOOKED, resell không đếm vé cũ; HOLDING không tính; mẫu số inventory thực của từng showtime; tổng có trọng số |
 | RBAC/history | CUSTOMER bị chặn mọi API F; STAFF không đọc reports; không bypass approval; POS history vẫn chỉ POS; refundStatus NONE/PARTIAL/FULL |
 

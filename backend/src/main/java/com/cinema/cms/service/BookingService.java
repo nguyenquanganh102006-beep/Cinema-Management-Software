@@ -26,6 +26,7 @@ public class BookingService {
     private final PricingService pricing;
     private final BookingCodeGenerator bookingCodes;
     private final Clock clock;
+    private final ShowtimeSaleGuard saleGuard;
 
     public BookingService(
             BookingRepository bookings,
@@ -39,7 +40,8 @@ public class BookingService {
             HoldOwnershipService ownership,
             PricingService pricing,
             BookingCodeGenerator bookingCodes,
-            Clock clock) {
+            Clock clock,
+            ShowtimeSaleGuard saleGuard) {
         this.bookings = bookings;
         this.bookingSeats = bookingSeats;
         this.bookingConcessions = bookingConcessions;
@@ -52,12 +54,14 @@ public class BookingService {
         this.pricing = pricing;
         this.bookingCodes = bookingCodes;
         this.clock = clock;
+        this.saleGuard = saleGuard;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public BookingResponse create(CreateBookingRequest request, SessionPrincipal principal) {
         String owner = ownership.owner(principal);
         SeatHoldService.validateShowtimeId(request.showtimeId());
+        saleGuard.lockSaleable(request.showtimeId());
         SeatHoldService.validateToken(request.holdToken());
 
         rejectExisting(request.holdToken(), owner, principal);
@@ -92,9 +96,10 @@ public class BookingService {
                                 () ->
                                         new ApiException(
                                                 404, "MOVIE_NOT_FOUND", "Không tìm thấy phim"));
+        saleGuard.requireSaleable(request.showtimeId());
 
         Instant ageConfirmedAt = null;
-        if (principal.role() == UserRole.CUSTOMER && movie.getAgeRating() != AgeRating.P) {
+        if (principal.role() == UserRole.CUSTOMER && showtime.getAgeRatingSnapshot() != AgeRating.P) {
             if (!Boolean.TRUE.equals(request.ageConfirmed()))
                 throw new ApiException(
                         422,

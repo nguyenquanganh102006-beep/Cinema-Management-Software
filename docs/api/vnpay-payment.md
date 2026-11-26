@@ -23,13 +23,25 @@ khỏi controller POS. Hai callback nằm trong `VnPayController`, không có
 |---|---|
 | `VNPAY_TMN_CODE` | Mã website tại VNPay |
 | `VNPAY_HASH_SECRET` | Secret ký HMAC SHA512, **không log** |
-| `VNPAY_PAY_URL` | Sandbox: `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html` |
+| `VNPAY_PAY_URL` | Dùng đúng URL thanh toán VNPay cấp cho merchant. Tài khoản test hiện tại dùng `https://sandbox.vnpaytest.vn/paymentv2/vpcpay.html`; tài liệu Sandbox chuẩn cũng công bố `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html`. |
 | `VNPAY_RETURN_URL` | URL portal CUSTOMER nhận redirect sau khi thanh toán |
 | `VNPAY_IPN_URL` | URL IPN đã đăng ký với VNPay; VNPay gọi trực tiếp, backend không tự gọi |
+
+`VNPAY_RETURN_URL` là trang trong trình duyệt khách hàng; môi trường local có thể dùng
+`http://localhost:3003/payments/vnpay/return`. `VNPAY_IPN_URL` là callback server-to-server,
+phải truy cập công khai và khớp URL đã đăng ký tại VNPay. `localhost` không thể nhận IPN từ VNPay;
+khi thử sandbox trên máy local, dùng tunnel HTTPS trỏ tới cổng backend đang chạy.
 
 Thiếu cấu hình → `POST` trả 503 `PAYMENT_CONFIGURATION_MISSING`. IPN thiếu cấu hình
 trả `RspCode` `"99"`. `VNPAY_IPN_URL` là thông tin đăng ký phía VNPay; nó không được
 gắn vào URL thanh toán (VNPay dùng URL đã đăng ký trong merchant portal).
+
+### Lấy thông tin sandbox
+
+Đăng ký website trên [VNPay Sandbox](https://sandbox.vnpayment.vn/devreg/) và dùng
+[hướng dẫn tích hợp chính thức](https://sandbox.vnpayment.vn/apis/docs/gioi-thieu/).
+VNPay cấp `TMN_CODE` và `HashSecret`; đặt chúng trong `.env` ở máy chạy backend, không commit
+secret vào Git. Backend trả `PAYMENT_CONFIGURATION_MISSING` nếu thiếu một trong năm biến trên.
 
 ## Tạo Payment và URL thanh toán
 
@@ -133,8 +145,16 @@ JWT; chữ ký là cơ chế xác thực. Thứ tự xử lý:
 3. **Tìm Booking** của Payment; kiểm tra method `GATEWAY_ONLINE`, channel `ONLINE`.
 4. **Verify amount**: `vnp_Amount` phải bằng `payments.amount × 100`. Sai → `"04"`.
 5. **State/idempotency**: Payment/Booking đã `PAID` → `"02"` và không xử lý lại.
-6. `vnp_ResponseCode = "00"` → gọi `CheckoutService.finalizePaid(...)`. Ngược lại →
-   Payment `FAILED`, Booking vẫn `PENDING`, trả `"00"` để VNPay dừng retry.
+6. Chỉ finalize khi cả `vnp_ResponseCode = "00"` và `vnp_TransactionStatus = "00"`.
+   VNPay yêu cầu kiểm tra cả hai mã kết quả [theo đặc tả PAY](https://sandbox.vnpayment.vn/apis/docs/thanh-toan-pay/pay.html).
+7. `vnp_TransactionStatus = "01"` là giao dịch chưa hoàn tất: giữ Payment `PENDING`, trả
+   `"99"` để VNPay có thể gửi lại IPN.
+8. `vnp_ResponseCode = "07"`, `vnp_TransactionStatus = "07"`, `vnp_TransactionStatus = "04"`,
+   hoặc status thành công nhưng response code mâu thuẫn: không phát hành vé; Payment → `PAID`,
+   Booking → `EXCEPTION_PENDING_DECISION`, ghi audit và trả `"00"` để dừng retry. Các trạng thái
+   này có thể liên quan đến khoản tiền đã bị trừ, bị nghi ngờ hoặc giao dịch đảo; Manager cần đối soát.
+9. `vnp_TransactionStatus = "02"` là giao dịch thất bại: Payment `FAILED`, Booking vẫn `PENDING`,
+   trả `"00"` để VNPay dừng retry.
 
 Payment được khóa bằng `findByVnpTxnRefForUpdate` trong một transaction chuẩn bị riêng.
 `CheckoutService.finalizePaid` chạy ở transaction riêng của nó (không lồng, không
@@ -150,20 +170,27 @@ cổng. Không gọi HTTP trong transaction.
 | `02` | `Order already confirmed` | Payment/Booking đã PAID (IPN lặp) |
 | `04` | `Invalid amount` | `vnp_Amount` khác `payments.amount × 100` |
 | `97` | `Invalid signature` | Sai chữ ký hoặc sai `vnp_TmnCode` |
-| `99` | `Unknown error` | Thiếu cấu hình, thiếu `vnp_ResponseCode`, Booking/Payment không hợp lệ, lỗi khác |
+| `99` | `Unknown error` | Thiếu cấu hình/kết quả, giao dịch chưa hoàn tất hoặc trạng thái không xác định, Booking/Payment không hợp lệ, lỗi khác |
 
 HTTP status luôn 200 với các mã trên; VNPay đọc `RspCode` trong body.
 
 ### Nhánh ngoại lệ
 
-IPN hợp lệ, `vnp_ResponseCode = "00"`, nhưng hold đã hết hạn hoặc kho F&B không đủ:
+IPN hợp lệ với cả `vnp_ResponseCode = "00"` và `vnp_TransactionStatus = "00"`, khi hold đã hết hạn sẽ khóa lại các ghế của
+Booking. Nếu mọi ghế vẫn `AVAILABLE` hoặc chỉ còn hold đã hết hạn, checkout chiếm ghế
+nguyên tử và tiếp tục phát hành vé. Nếu một ghế đã được bán hoặc đang có hold còn hiệu
+lực, không phát hành vé; không lấy ghế của giao dịch khác.
 
-- Không phát hành Ticket; không trừ kho; ghế giữ nguyên trạng thái hiện tại.
+Các lỗi nghiệp vụ không thể hoàn tất như ghế đã bị lấy, kho F&B không đủ, giá đổi hay
+liên kết dữ liệu không hợp lệ sẽ vào nhánh exception:
+
+- Không phát hành Ticket; không trừ kho; giữ nguyên ghế mà booking khác đang sở hữu.
 - Booking → `EXCEPTION_PENDING_DECISION` (chỉ từ `PENDING`, qua `Booking.markException`).
-- Payment → `PAID` và giữ `gateway_transaction_code`, ghi nhận tiền đã nhận để xử lý
-  thủ công (hoàn tiền hoặc đổi suất).
-- Vẫn trả `"00"` để VNPay dừng retry; ghi audit log
-  `action=VNPAY_IPN result=EXCEPTION_PENDING_DECISION`.
+- Payment → `PAID` và giữ `gateway_transaction_code`, ghi audit event bền vững để
+  Manager xử lý.
+- Đưa booking vào `GET /api/v1/reports/payment-exceptions` và hiển thị trong Manager
+  dashboard; khách nhận thông báo rõ là đội hỗ trợ đang xử lý.
+- Vẫn trả `"00"` để VNPay dừng retry.
 
 Mọi `ApiException` khác từ `finalizePaid` — `PRICE_CHANGED`, `SEAT_HOLD_MISMATCH`,
 `SEAT_HOLD_INVALID`, `CONCESSION_ITEM_NOT_FOUND`, `BOOKING_INVALID_STATE`, ... — cũng
@@ -212,6 +239,16 @@ vẫn trả `"99"`.
 kiểm tra: URL/tham số/chữ ký, retry xoay `vnp_txn_ref` trên cùng Payment, IPN thành
 công phát hành đúng một Ticket, IPN lặp trả `"02"`, hai IPN song song chỉ một bộ
 Ticket, Return URL không finalize, chữ ký sai `"97"`, sai số tiền `"04"`, Payment
-FAILED chặn retry, hold hết hạn hoặc giá vé thay đổi sau khi đặt →
-`EXCEPTION_PENDING_DECISION` (IPN lặp trả `"02"`), CUSTOMER khác nhận 404, STAFF nhận
-403, và thiếu xác nhận tuổi nhận 422.
+FAILED chặn retry; IPN đến sau khi hold hết hạn vẫn phát hành vé nếu ghế còn trống,
+còn ghế đã được lấy đưa Booking vào `EXCEPTION_PENDING_DECISION` (IPN lặp trả `"02"`).
+Giá vé thay đổi sau khi đặt cũng vào exception. CUSTOMER khác nhận 404, STAFF nhận 403,
+và thiếu xác nhận tuổi nhận 422.
+
+## Thanh toán mô phỏng local
+
+Profile `local` có thể bật `PAYMENT_DEMO_ENABLED=true` để hiện nút **Mô phỏng thanh toán thành công**
+trong trang thanh toán CUSTOMER. Nút gọi `POST /api/v1/bookings/{bookingId}/payments/test-complete`;
+backend kiểm tra chủ đơn, dùng cùng luồng finalize và phát hành Ticket trong cơ sở dữ liệu local.
+`GET /api/v1/payments/test-mode` cho frontend biết cờ này đang bật hay tắt. Controller chỉ được tạo
+trong profile `local`, giá trị mặc định là `false`; không dùng route này để thay callback VNPay hoặc
+để kiểm thử trên môi trường production.

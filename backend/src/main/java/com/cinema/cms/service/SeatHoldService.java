@@ -16,6 +16,7 @@ public class SeatHoldService {
   private final ShowtimeRepository showtimes;
   private final HoldOwnershipService ownership;
   private final SweetboxPairValidator pairs;
+  private final ShowtimeSaleGuard saleGuard;
   private final Clock clock;
   private final long ttl, extension, after;
 
@@ -25,6 +26,7 @@ public class SeatHoldService {
       ShowtimeRepository showtimes,
       HoldOwnershipService ownership,
       SweetboxPairValidator pairs,
+      ShowtimeSaleGuard saleGuard,
       Clock clock,
       @Value("${app.holds.ttl-seconds:300}") long ttl,
       @Value("${app.holds.extension-seconds:120}") long extension,
@@ -36,6 +38,7 @@ public class SeatHoldService {
     this.showtimes = showtimes;
     this.ownership = ownership;
     this.pairs = pairs;
+    this.saleGuard = saleGuard;
     this.clock = clock;
     this.ttl = ttl;
     this.extension = extension;
@@ -47,6 +50,7 @@ public class SeatHoldService {
       Long showtimeId, HoldSeatsRequest request, SessionPrincipal principal) {
     String owner = ownership.owner(principal);
     validateShowtimeId(showtimeId);
+    saleGuard.lockSaleable(showtimeId);
     var ids = request == null ? null : request.seatIds();
     if (ids == null
         || ids.isEmpty()
@@ -77,6 +81,7 @@ public class SeatHoldService {
 
     inventory.configureLockTimeout();
     var locked = inventory.lockSeats(showtimeId, expanded);
+    saleGuard.requireSaleable(showtimeId);
     Instant start =
         showtimes
             .findCurrentStartTime(showtimeId)
@@ -122,6 +127,7 @@ public class SeatHoldService {
       throw error(400, "VALIDATION_ERROR", "Phải đang chờ chuyển khoản");
     var locked = lockToken(token);
     if (locked.isEmpty()) throw expired();
+    saleGuard.requireSaleable(locked.getFirst().getShowtimeId());
     checkOwner(locked, owner);
     checkConsistent(locked);
     Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);

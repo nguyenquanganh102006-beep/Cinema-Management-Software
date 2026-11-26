@@ -13,7 +13,7 @@ it("selects both Sweetbox seats from a single keyboard action", async () => {
       onSelect={select}
     />,
   );
-  const seat = screen.getByRole("button", { name: "B5 · SWEETBOX · Trống" });
+  const seat = screen.getByRole("button", { name: "B5, SWEETBOX, Trống" });
   seat.focus();
   await userEvent.keyboard("{Enter}");
   expect(select).toHaveBeenCalledWith([11, 12]);
@@ -26,10 +26,10 @@ it("blocks sold seats and an incomplete Sweetbox pair", () => {
     <SeatMap seats={seats} selected={[]} locked={false} onSelect={() => {}} />,
   );
   expect(
-    screen.getByRole("button", { name: "A1 · STANDARD · Đã bán" }),
+    screen.getByRole("button", { name: "A1, STANDARD, Đã bán" }),
   ).toBeDisabled();
-  expect(screen.getByRole("button", { name: "A1 · STANDARD · Đã bán" })).toHaveTextContent("×");
+  expect(screen.getByRole("button", { name: "A1, STANDARD, Đã bán" })).toHaveTextContent("×");
   expect(
-    screen.getByRole("button", { name: "B5 · SWEETBOX · Trống" }),
+    screen.getByRole("button", { name: "B5, SWEETBOX, Trống" }),
   ).toBeDisabled();
 });

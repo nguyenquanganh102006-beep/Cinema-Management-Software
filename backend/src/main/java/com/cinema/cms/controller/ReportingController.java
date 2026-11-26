@@ -32,12 +32,20 @@ public class ReportingController {
     @GetMapping("/ticket-count")
     @Operation(summary="Current VALID/USED, gross and cancelled ticket counts",description="MANAGER. Payment-date cohort from/to; current state, not an immutable historical snapshot.")
     public ApiResponse<TicketCount> count(@RequestParam String from,@RequestParam String to) { return new ApiResponse<>(reports.ticketCount(from,to)); }
+    @GetMapping("/time-series")
+    @Operation(summary="Paid transactions, tickets and refunds grouped by hour, day, week or month",description="MANAGER. Inclusive from/to in Asia/Ho_Chi_Minh; gross/refunds/net follow the transaction date. Daily for ranges up to 45 days, weekly up to 180 days, then monthly; a single day is hourly. Maximum range 366 days.")
+    public ApiResponse<TimeSeries> timeSeries(@RequestParam String from,@RequestParam String to) { return new ApiResponse<>(reports.timeSeries(from,to)); }
     @GetMapping("/occupancy")
     @Operation(summary="BOOKED seats divided by showtime seat inventory",description="MANAGER. Range is showtime start dates. Total percentage is weighted by seat count. HOLDING seats are excluded.")
     public ApiResponse<Occupancy> occupancy(@RequestParam String from,@RequestParam String to) { return new ApiResponse<>(reports.occupancy(from,to)); }
     @GetMapping("/inventory-alerts")
     @Operation(summary="Current F&B stock at or below threshold",description="MANAGER. No date range; zero stock is OUT_OF_STOCK.")
     public ApiResponse<List<InventoryAlert>> alerts() { return new ApiResponse<>(reports.alerts()); }
+    @GetMapping("/payment-exceptions")
+    @Operation(summary="Paid online bookings that need manual delivery or refund handling",description="MANAGER. Shows EXCEPTION_PENDING_DECISION bookings so the Manager can follow up. No Ticket is issued and no refund is made automatically.")
+    public ApiResponse<List<PaymentException>> paymentExceptions(@RequestParam(defaultValue="50") int limit) {
+        return new ApiResponse<>(reports.paymentExceptions(limit));
+    }
     @GetMapping("/movies/ranking")
     @Operation(summary="Top or bottom movies by net Ticket plus F&B revenue",description="MANAGER. Payment cohort. Only movies with completed paid bookings in range; ASC/DESC, default limit 5, max 100; movie ID breaks ties.")
     public ApiResponse<Ranking> ranking(@RequestParam String from,@RequestParam String to,@RequestParam(defaultValue="DESC") String direction,@RequestParam(defaultValue="5") int limit) {

@@ -29,15 +29,22 @@ public class RefundRepository {
                 booking_id,ticket_ids_json,reason,approved_amount,cash_confirmed_at,expires_at)
             values (?,?,?,?,?,?,?::jsonb,?,?,?,?)
             """, a.tokenHash(),a.staffId(),a.staffTokenId(),a.managerId(),a.managerSecurityVersion(),
-            a.bookingId(),json(a.ticketIds()),a.reason(),a.approvedAmount(),Timestamp.from(a.cashConfirmedAt()),Timestamp.from(a.expiresAt()));
+            a.bookingId(),json(a.ticketIds()),a.reason(),a.approvedAmount(),a.cashConfirmedAt() == null ? null : Timestamp.from(a.cashConfirmedAt()),Timestamp.from(a.expiresAt()));
     }
     public Optional<ManagerOverride> lockApproval(String hash) {
         return jdbc.query("select * from manager_overrides where token_hash=? for update", (r,n) ->
             new ManagerOverride(r.getString("token_hash"),r.getLong("staff_id"),r.getString("staff_token_id"),
             r.getLong("manager_id"),r.getInt("manager_security_version"),r.getLong("booking_id"),
             ids(r.getString("ticket_ids_json")),r.getString("reason"),r.getBigDecimal("approved_amount"),
-            r.getTimestamp("cash_confirmed_at").toInstant(),r.getTimestamp("expires_at").toInstant(),
+            r.getTimestamp("cash_confirmed_at") == null ? null : r.getTimestamp("cash_confirmed_at").toInstant(),r.getTimestamp("expires_at").toInstant(),
             r.getObject("refund_id",Long.class)),hash).stream().findFirst();
+    }
+    public Instant confirmCash(String tokenHash, Instant confirmedAt) {
+        return jdbc.queryForObject("""
+            update manager_overrides set cash_confirmed_at=?
+            where token_hash=? and refund_id is null and cash_confirmed_at is null
+            returning cash_confirmed_at
+            """, (r,n) -> r.getTimestamp(1).toInstant(), Timestamp.from(confirmedAt), tokenHash);
     }
     public long record(ManagerOverride a, Instant now) {
         return jdbc.queryForObject("""

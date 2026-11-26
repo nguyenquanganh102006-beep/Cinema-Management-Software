@@ -5,8 +5,8 @@ Base path `/api/v1/showtimes`. Authorization uses the existing Foundation Bearer
 | Method | Path | Role | Result |
 |---|---|---|---|
 | POST | `/showtimes` | MANAGER | 201, creates showtime and all AVAILABLE inventory atomically |
-| GET | `/showtimes` | Any authenticated user | 200, filtered and paged list |
-| GET | `/showtimes/{id}` | Any authenticated user | 200, detail; 404 if missing |
+| GET | `/showtimes` | Any authenticated user | 200, filtered and paged list; Staff/Customer see saleable schedules only |
+| GET | `/showtimes/{id}` | Any authenticated user | 200, detail; Staff/Customer receive 404 for an inactive movie/room schedule |
 | PATCH | `/showtimes/{id}` | MANAGER | 200, replaces editable movie/time fields |
 
 ## Create
@@ -19,7 +19,7 @@ All fields are required and non-null. IDs must be positive JSON integers in the 
 
 The service verifies an active movie and auditorium, positive movie duration and non-empty physical seat inventory. Sweetbox seats must form symmetric, adjacent pairs in the same row and auditorium. A configured capacity may exceed the current physical seat count: inventory uses actual physical seats, following Master Data's declared-capacity convention.
 
-`endTime = startTime + movie.durationMinutes + 15 minutes`. Occupancy uses `[startTime, endTime)`; an adjacent show may begin exactly at endTime. The common BASE_PRICE / STANDARD_2D rule supplies basePrice, without room/seat/time surcharges. No ticket quote is implemented here.
+`endTime = startTime + movie.durationMinutes + 15 minutes`. Occupancy uses `[startTime, endTime)`; an adjacent show may begin exactly at endTime. The common BASE_PRICE / STANDARD_2D rule supplies basePrice, without room/seat/time surcharges. Create/update snapshots movie title, rating, duration and auditorium name/type; later master edits do not rewrite sale history. No ticket quote is implemented here.
 
 ## Update
 
@@ -41,16 +41,18 @@ Single resource:
     "id": 10, "movieId": 1, "auditoriumId": 2,
     "startTime": "2026-11-14T19:30:00+07:00",
     "endTime": "2026-11-14T21:45:00+07:00",
-    "basePrice": 70000.00
+    "basePrice": 70000.00,
+    "movieTitle": "Example Film", "ageRating": "T13", "durationMinutes": 120,
+    "auditoriumName": "Room 1", "auditoriumType": "STANDARD_2D"
   }
 }
 ```
 
 List: `{"data":{"items":[...],"page":0,"size":20,"totalElements":1,"totalPages":1}}`, using shared `ApiResponse<PageResponse<ShowtimeResponse>>`. No separate `meta` wrapper or JPA entities.
 
-Optional filters: `movieId`, `auditoriumId`, `date` (`YYYY-MM-DD`). `page` defaults to 0; `size` defaults to 20, range 1–100. Invalid formats/ranges or an offset beyond JPA's supported integer range return 400. Sort is `startTime ASC, id ASC`.
+Optional filters: `movieId`, `auditoriumId`, `date` (`YYYY-MM-DD`). `page` defaults to 0; `size` defaults to 20, range 1–100. Invalid formats/ranges or an offset beyond JPA's supported integer range return 400. Sort is `startTime ASC, id ASC`. Manager sees inactive schedules for management/history; Staff/Customer do not.
 
-Date means the local **start date** in `Asia/Ho_Chi_Minh`, using a half-open midnight-to-midnight instant range. A show starting 23:30 and ending the next day belongs to its start date. There is no undocumented future-only or movie/room-active filter on historical reads.
+Date means the local **start date** in `Asia/Ho_Chi_Minh`, using a half-open midnight-to-midnight instant range. A show starting 23:30 and ending the next day belongs to its start date. Staff/Customer sale reads exclude schedules with inactive master records; Manager can inspect them.
 
 Storage uses Foundation's `Instant` / TIMESTAMPTZ. Response times use the business-zone offset. Request times are truncated to PostgreSQL microseconds before conflict detection/storage. Supported business-local years are 0001–9999, including computed end time.
 
@@ -66,6 +68,7 @@ The existing `GlobalExceptionHandler` returns `timestamp/status/code/message/det
 | 404 | MOVIE_NOT_FOUND / AUDITORIUM_NOT_FOUND / SHOWTIME_NOT_FOUND | Missing resource |
 | 409 | SHOWTIME_CONFLICT | Same-room occupancy overlaps |
 | 409 | SHOWTIME_CANNOT_BE_MODIFIED | Ticket history or unavailable inventory |
+| 409 | SHOWTIME_UNAVAILABLE | Inactive movie/room schedule on quote, seat map, hold or new Booking flow |
 | 409 | SEAT_UPDATE_CONFLICT | Inventory lock timeout (2 seconds) or version conflict |
 | 422 | MOVIE_INACTIVE / AUDITORIUM_INACTIVE | Inactive master data on a write |
 | 422 | MOVIE_DURATION_INVALID | Invalid master duration |

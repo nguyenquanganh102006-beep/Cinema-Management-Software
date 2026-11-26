@@ -60,3 +60,19 @@ Cột bằng chứng là test thực sự liên quan; các phần còn thiếu �
 ## Tài liệu đọc code
 
 [Tổng quan walkthrough](../code-walkthrough/README.md), [frontend](../code-walkthrough/frontend.md), [backend](../code-walkthrough/backend.md), [ADR recovery](../decisions/007-booking-create-recovery.md).
+
+## Review follow-up — 25/11/2026
+
+Code inspection on the updated branch confirms the M04 pair/unpair UI, M07 combo editor
+and M06 quote preview are present in source; the rows above remain open where their
+interactive/live error matrices were not captured. This source review did not run browser
+acceptance; backend and frontend build/test results from the later contract-alignment pass
+are recorded in [Sprint F validation](sprint-f.md).
+
+Backend follow-up against the Drive standards: inactive movie/room schedules are hidden
+from Staff/Customer and new quote/hold/Booking writes are blocked; V9 persists movie and
+room snapshots for schedule, ticket and history views; V10 persists the required audit
+events; V11 closes the concurrent case-insensitive F&B-name race. VietQR payloads use
+EMVCo MPM/VietQR TLV with configured bank BIN and CRC. No bank-app scan, VNPay sandbox,
+physical printer/scanner or Figma fidelity check was performed. Full implementation
+decisions are in [ADR 008](../decisions/008-drive-alignment-hardening.md).

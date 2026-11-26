@@ -40,15 +40,15 @@ Sources read include the original workspace's FUNCTIONAL REQUIREMENTS, BUSINESS 
 2. **Existing schema.** Instant maps TIMESTAMPTZ, not the old backup's LocalDateTime/timestamp. Scalar FK ids follow B entity conventions. Showtime IDs/movie IDs/seat IDs are Long; auditorium IDs are Integer. ShowtimeSeat has the existing PostgreSQL enum and `@Version Integer`. No migration is required; V1–V5 and POM are untouched.
 3. **Existing API shapes.** DTO uses `id` like B and existing `ApiResponse`/`PageResponse`; error code VALIDATION_ERROR comes from Foundation. Unknown properties are already rejected globally. New field-specific numeric deserializers prevent fractional JSON ids from silently selecting a different master record; they do not alter global Jackson behavior.
 4. **PATCH convention.** Master Data explicitly replaces all editable fields. C therefore requires both movieId and startTime, with immutable room/basePrice and no null merge semantics. Architecture v3 lists PATCH without prescribing a body; the optional-field behavior existed only in the old standalone C implementation. The difference is documented for frontend consumers.
-5. **Common base.** The official V3 rule code is BASE_STANDARD, not old BASE_2D. Lookup uses the stable BASE_PRICE / STANDARD_2D identity. Price remains the showtime's creation snapshot on update; checkout pricing remains E's responsibility. There is no fictitious call to a nonexistent quote service.
+5. **Common base.** The official V3 rule code is BASE_STANDARD, not old BASE_2D. Lookup uses the stable BASE_PRICE / STANDARD_2D identity. Base price remains the showtime's creation snapshot on update; room/seat/time pricing and checkout revalidation are E's responsibility. There is no fictitious call to a nonexistent quote service.
 6. **Inventory.** Initialize exactly the physical seats present under the room lock, including each physical Sweetbox seat. Capacity may exceed count per B's declared-capacity decision. Never rebuild/delete inventory on PATCH.
-7. **Read query.** Entities here contain only six scalar showtime fields and no lazy master relationships. List uses one bounded query plus a count when needed, maps DTOs inside the transaction and avoids N+1. Date follows local start day, not all days occupied.
+7. **Read query.** Showtime now stores movie and auditorium display/rating snapshots. List uses a bounded projection query plus a count when needed and maps DTOs inside the transaction. Date follows local start day, not all days occupied.
 
 ## Transaction and lock contract
 
-CREATE: normalize input → lock existing Auditorium PESSIMISTIC_WRITE → read master movie/physical seats → validate pairs → compute end → query overlap → read base → insert Showtime → insert all inventory → flush → commit.
+CREATE: normalize input → lock active Movie PESSIMISTIC_WRITE → lock active Auditorium PESSIMISTIC_WRITE → read physical seats → validate pairs → compute end → query overlap → read base → insert Showtime snapshots → insert all inventory → flush → commit.
 
-PATCH: read immutable auditorium id as a scalar → lock Auditorium → lock Showtime → lock all ShowtimeSeat rows ordered by seat id → reject unavailable rows or any Ticket history → validate movie → recalculate time → query overlap excluding self → update/flush/commit. Base and inventory remain unchanged. Room-first ordering serializes every C schedule writer and matches B's seat-layout write lock. READ_COMMITTED ensures overlap queries after waiting see the previous writer's commit.
+PATCH: read immutable auditorium id as a scalar → lock target active Movie → lock active Auditorium → lock Showtime → lock all ShowtimeSeat rows ordered by seat id → reject unavailable rows or any Ticket history → recalculate time → query overlap excluding self → update snapshots/flush/commit. Base and inventory remain unchanged. Movie-then-room ordering matches sale writes and prevents a concurrent master deactivation from slipping between the activity check and schedule write. The room lock still serializes schedule and seat-layout writers. READ_COMMITTED ensures overlap queries after waiting see the previous writer's commit.
 
 The service is the transaction entry point. Do not wrap it in an outer transaction with a different isolation/snapshot. No HTTP calls occur inside these transactions. A query check without the room lock is insufficient: two creates could both observe no conflicting row before insertion.
 
@@ -71,12 +71,14 @@ Future D/E writers must lock the same inventory rows in ascending seat-id order 
 
 During implementation, external reference files were left untouched. In the subsequent user-requested cleanup, the superseded external backend, old test script, two obsolete C documents and build outputs were moved to the Windows Recycle Bin after dependency checks. Original requirements, diagrams and database backup remain. No old component was copied unchanged (KEEP) because its integration contracts differed.
 
-## Decisions still owned by the team
+## Follow-up decisions (2026-11-25)
 
-- B allows changing movie status/metadata and auditorium status/type; it does not lock every such update against scheduling. Requirements do not state a definitive policy for deactivating a master record with future shows. C rejects inactive data when writing, preserves historical reads and adds no speculative ban or refactor to B. A later concurrent deactivation may leave an existing show linked to inactive master data; that policy needs an explicit decision.
-- Seat layout/pair metadata is mutable in B. C captures inventory at creation; it does not propagate later layout additions into existing shows. Decide edit restrictions or snapshot rules before D/E rely on layout stability.
-- B's Sweetbox creation API permits non-adjacent pairs, while BR-04 requires adjacency. C refuses to schedule that invalid layout, without changing B's API. B can repair it using existing unpair/edit/pair operations.
+- Deactivation is soft: Staff/Customer schedule reads omit a show whose movie or room is inactive; quote, seat map, hold and new Booking creation return `SHOWTIME_UNAVAILABLE`. Manager retains access to the schedule and prior booking/ticket records remain readable.
+- Showtime V9 snapshots movie title/rating/duration and auditorium name/type. Pricing and ticket/history views use these values to avoid rewriting existing sale history after a master-data edit.
+- Seat layout edits are blocked after a room has any showtime. Sweetbox pair creation enforces BR-04 adjacency at the master-data endpoint. A pair occupies two physical seats and yields two Ticket records.
 - Ticket USED lifecycle, late IPN after hold expiry, financial exceptions, Sweetbox partial refund and revenue definitions remain outside C. No arbitrary state or workaround is introduced here.
 - No requirement establishes a showtime status lifecycle, DELETE endpoint, past-date creation ban or room reassignment workflow; none is added.
+
+For auditability, migration and VietQR decisions, see [review hardening](008-drive-alignment-hardening.md).
 
 These handoff decisions do not block the four documented C operations on valid current master data. See [API](../api/showtimes.md) and [validation report](../architecture/showtime-validation.md).

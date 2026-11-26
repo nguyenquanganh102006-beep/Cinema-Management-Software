@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 const password = process.env.DEMO_PASSWORD;
-const base = "http://localhost:8080/api/v1";
+const base = "http://localhost:8081/api/v1";
 test("live POS and Customer compete for one PostgreSQL inventory seat", async ({
   request,
 }) => {
@@ -74,9 +74,9 @@ test("live Customer browses a real showtime and holds a Sweetbox pair", async ({
     .getByRole("link", { name: "Reference seat holding demo", exact: true })
     .click();
   await page.getByRole("button", { name: "Chọn suất" }).first().click();
-  await page.getByRole("button", { name: "C1 · SWEETBOX · Trống" }).click();
+  await page.getByRole("button", { name: "C1, SWEETBOX, Trống" }).click();
   await expect(
-    page.getByRole("button", { name: "C2 · SWEETBOX · Đã chọn" }),
+    page.getByRole("button", { name: "C2, SWEETBOX, Đã chọn" }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Giữ các ghế đã chọn" }).click();
   await expect(
@@ -87,7 +87,7 @@ test("live Customer browses a real showtime and holds a Sweetbox pair", async ({
     .getByRole("button", { name: "Giải phóng ghế", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: "C1 · SWEETBOX · Trống" }),
+    page.getByRole("button", { name: "C1, SWEETBOX, Trống" }),
   ).toBeEnabled();
 });
 
@@ -127,7 +127,7 @@ test("live Manager creates master data, Staff sells POS cash ticket, and validat
   await page.getByLabel("Hàng", { exact: true }).fill("A");
   await page.getByLabel("Số ghế", { exact: true }).fill("1");
   await page.getByRole("button", { name: "Lưu", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Sửa ghế A1 · STANDARD", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sửa ghế A1, STANDARD", exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: "F&B", exact: true }).click();
   await page.getByRole("button", { name: "Thêm mới", exact: true }).click();
@@ -171,12 +171,12 @@ test("live Manager creates master data, Staff sells POS cash ticket, and validat
   const showCard = page.locator("article.card").filter({ hasText: movieTitle }).first();
   await showCard.getByRole("button", { name: "Chọn suất" }).click();
 
-  await page.getByRole("button", { name: "A1 · STANDARD · Trống" }).click();
+  await page.getByRole("button", { name: "A1, STANDARD, Trống" }).click();
   await page.getByLabel(`Số lượng ${snackName}`).fill("1");
   await page.getByRole("button", { name: "Giữ các ghế đã chọn" }).click();
   await page.getByRole("link", { name: "Tiếp tục thanh toán" }).click();
 
-  await page.getByRole("button", { name: "Tạo đơn · lấy tổng thanh toán" }).click();
+  await page.getByRole("button", { name: "Tạo đơn, lấy tổng thanh toán" }).click();
   await page.getByLabel("Tiền khách đưa").fill("500000");
   await page.getByRole("button", { name: "Thu tiền mặt" }).click();
 

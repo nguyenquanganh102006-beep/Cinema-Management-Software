@@ -54,7 +54,7 @@ test("POS sells a paid ticket and prints the stored receipt", async ({
   await expect(
     page.getByRole("button", { name: "In vé / hóa đơn" }),
   ).toBeVisible();
-  await expect(page.getByText(/TK-\d+ · VALID/)).toBeVisible();
+  await expect(page.getByText(/TK-\d+, VALID/)).toBeVisible();
 });
 test("VietQR requires manual confirmation and preserves the Staff session", async ({
   page,

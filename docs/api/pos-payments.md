@@ -122,11 +122,13 @@ Thêm vào `.env` (xem `.env.example`):
 
 ```env
 CINEMA_BANK_ACCOUNT=0123456789
-CINEMA_BANK_NAME=Vietcombank
+CINEMA_BANK_NAME=VietinBank
+CINEMA_BANK_BIN=970415
 ```
 
 `application.yml` đọc qua `app.payments.vietqr.bank-account` và
-`app.payments.vietqr.bank-name`. Thiếu một trong hai → 503
+`app.payments.vietqr.bank-name`, `app.payments.vietqr.bank-bin`. Thiếu BIN 6 chữ số,
+số tài khoản hợp lệ hoặc tên ngân hàng → 503
 `PAYMENT_CONFIGURATION_MISSING`; không tạo Payment.
 
 ### Tạo Payment PENDING
@@ -156,23 +158,36 @@ Content-Type: application/json
     "bookingCode": "BK-301231-0042",
     "amount": 180000.00,
     "bankAccount": "0123456789",
-    "bankName": "Vietcombank",
+    "bankName": "VietinBank",
     "transferContent": "CINEMA BK-301231-0042",
-    "qrPayload": "vietqr://transfer?bankName=Vietcombank&account=0123456789&amount=180000.00&content=CINEMA%20BK-301231-0042",
+    "qrPayload": "00020101021138500010A0000007270106970415021001234567890308QRIBFTTA530370454061800005802VN62250821CINEMA BK-301231-004263047298",
     "paymentStatus": "PENDING"
   }
 }
 ```
 
-`qrPayload` là URI nội bộ để portal STAFF render thành QR:
+`qrPayload` là chuỗi EMVCo Merchant-Presented Mode / VietQR thô; portal STAFF mã hóa
+nguyên chuỗi này thành ảnh QR, không thêm URI hoặc URL:
+
+Payload dùng `01=11` theo BR-19. Mỗi Booking mang số tiền và nội dung chuyển khoản riêng;
+Staff kiểm tra giao dịch thực vào tài khoản rồi xác nhận thủ công tại quầy. QR không gọi
+webhook và hệ thống không tự đối soát số dư ngân hàng.
 
 ```text
-vietqr://transfer?bankName=<url-encoded>&account=<url-encoded>&amount=<plain>&content=<url-encoded>
+00  Payload Format Indicator       01
+01  Point of Initiation Method     11 (mã tĩnh theo BR-19)
+38  VietQR account transfer        GUID A000000727 + BIN + số tài khoản + QRIBFTTA
+53  Currency                       704 (VND)
+54  Amount                         số tiền Booking
+58  Country                        VN
+62  Transfer content               CINEMA <bookingCode>
+63  CRC                            CRC-16/CCITT-FALSE
 ```
 
-Đây **chưa phải** chuỗi EMVCo/VietQR chuẩn ngân hàng vì cấu hình hiện tại không có
-bank BIN. Khi bổ sung BIN, chỉ cần thay phần build payload; response và luồng xác nhận
-giữ nguyên.
+BIN là mã ngân hàng NAPAS 6 chữ số, phải khớp với tài khoản nhận. Payload đã có cấu
+trúc EMVCo/VietQR và CRC; cấu hình sai BIN/tài khoản vẫn có thể khiến ứng dụng ngân
+hàng từ chối. STAFF phải kiểm tra giao dịch thực đã vào tài khoản trước khi bấm xác
+nhận; chưa có webhook/API đối soát ngân hàng.
 
 ### Xác nhận đã nhận chuyển khoản
 
@@ -223,7 +238,8 @@ không finalize từ return URL của client.
 
 ## Kiểm soát tuổi
 
-- `ageRating` luôn lấy từ `movies` của `showtimes` trong DB, không lấy từ request.
+- `ageRating` luôn lấy từ snapshot của Movie trên Showtime, không lấy từ request hoặc
+  metadata Movie hiện tại. Sửa phân loại phim sau khi phát hành không đổi lịch sử vé.
 - Phim `P`: `ageDocumentChecked` có thể bỏ qua hoặc `false`; không ghi
   `age_verifications`.
 - Phim `T13/T16/T18`:
@@ -265,7 +281,7 @@ Không log JWT, hold token, PIN, VNPay secret hay toàn bộ request body.
 | 422 | `BOOKING_CHANNEL_INVALID` | Booking kênh ONLINE |
 | 422 | `AGE_VERIFICATION_REQUIRED` | Phim hạn chế tuổi chưa xác nhận giấy tờ |
 | 422 | `PAYMENT_CASH_INSUFFICIENT` | `cashReceived < total_amount` |
-| 503 | `PAYMENT_CONFIGURATION_MISSING` | Thiếu `CINEMA_BANK_ACCOUNT`/`CINEMA_BANK_NAME` |
+| 503 | `PAYMENT_CONFIGURATION_MISSING` | Thiếu hoặc sai `CINEMA_BANK_BIN`/`CINEMA_BANK_ACCOUNT`/`CINEMA_BANK_NAME` |
 
 ## Ghi chú nội bộ
 

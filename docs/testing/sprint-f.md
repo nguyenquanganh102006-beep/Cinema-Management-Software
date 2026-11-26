@@ -1,6 +1,6 @@
 # Kiểm thử backend Sprint F
 
-Phạm vi: Refund, Manager Override, Reports, POS refundStatus và migration V8.
+Phạm vi: Refund, Manager Override, Reports, POS refundStatus, migration V8 và các bổ sung V12/V13 cho cash handover sau duyệt và audit outcome ngoại lệ.
 Test tự động nằm trong `RefundReportsIntegrationTest`, dùng PostgreSQL thật,
 MockMvc/JWT và MutableClock; không phải nghiệm thu giao diện hoặc ngân hàng thật.
 
@@ -28,7 +28,7 @@ locale C thuần không đáp ứng test tên F&B không phân biệt hoa/thư�
 | FR-55 / UC-17 | eligibilityFindsOnlineBookingAndRejectsAmbiguousLookup | Tìm vé ONLINE từ POS; STAFF/MANAGER lookup; đúng một khóa tìm kiếm |
 | FR-56 / BR-31 | exactThirtyMinutesIsEligibleButUsedAndLateTicketsAreNot | Đúng 30 phút được hoàn; dưới mốc bị từ chối |
 | FR-56 / E gate | usedTicketCannotGetApproval | Vé USED không được duyệt refund |
-| FR-58 / NFR-05/06 | approvalBindsSessionSelectionReasonAndCashConfirmation | Không đổi phiên/tập vé/lý do/cash flag sau duyệt |
+| FR-58 / NFR-05/06 | approvalBindsSessionSelectionReasonAndCashConfirmation | Không đổi phiên/tập vé/lý do sau duyệt; cash chưa xác nhận thì không refund; xác nhận phải diễn ra trong TTL |
 | FR-58 | expiryAndRevokedManagerApprovalAreRejected | Token hết 180 giây và Manager bị LOCKED bị chặn |
 | FR-58 | managerSecurityVersionChangeInvalidatesUnconsumedApproval | Manager đổi securityVersion làm approval cũ mất hiệu lực |
 | FR-58/59 | wrongPinCustomerAndMixedBookingCannotApprove | PIN sai, CUSTOMER, vé Booking khác, IDs trùng bị chặn |
@@ -44,10 +44,10 @@ locale C thuần không đáp ứng test tên F&B không phân biệt hoa/thư�
 | FR-65 | currentInventoryAlertsDistinguishLowAndOutOfStock | LOW_STOCK / OUT_OF_STOCK và gỡ alert khi nhập đủ |
 | FR-64/66 | rankingSupportsBothDirectionsAndOccupancyWeightsInventoryCounts | ASC/DESC, limit, weighted occupancy theo inventory |
 | E exception / FR-62 | exceptionPaidIsSeparateAndEmptyPeriodsAndInvalidDatesAreHandled | Tiền ngoại lệ tách riêng; empty/zero denominator; ngày sai trả lỗi |
-| NFR-06 | allReportRoutesEnforceManagerAndRefundRoutesRejectCustomer | Cả 7 route report; role STAFF bị chặn; missing date trả 400 |
+| NFR-06 | allReportRoutesEnforceManagerAndRefundRoutesRejectCustomer | Cả 8 route report/queue; role STAFF bị chặn; missing date trả 400 |
 | FR-58–61 | httpApprovalAndRefundValidateAndExposeTheExpectedContract | HTTP approve/refund, FULL trong POS history, Bean Validation và quyền POST |
 
-Ngoài test F, cập nhật test Foundation từ 7 lên 8 migration và test POS history
+Ngoài test F, cập nhật test Foundation từ 7 lên 8 migration lúc triển khai F; test hiện tại xác nhận đủ 13 migration. Test POS history
 từ refundStatus=null sang NONE để khớp contract F. Query thứ tự lịch sử POS trong
 test được lọc đúng ngày fixture 2040-06-06, tránh phụ thuộc các giao dịch của test F.
 Các test A–E còn lại giữ nguyên.
@@ -84,3 +84,22 @@ báo cáo JUnit ở `backend/target/surefire-reports` (build output, không comm
 Giới hạn: không gọi VNPay/ngân hàng thật; không kiểm thử UI hay bàn giao tiền mặt
 ngoài hệ thống. Doanh thu dùng cohort thanh toán và trạng thái vé hiện tại; không
 phải sổ dòng tiền bất biến theo ngày chi refund. Xem [decision F](../decisions/006-refund-reports.md).
+
+## Rà soát chuẩn docs-drive — 25/11/2026
+
+Sau khi chỉnh contract refund cash handover, phục hồi ghế cho late VNPay IPN, hàng đợi
+payment exception, audit bền vững, VietQR tĩnh và snapshot showtime, chạy lại toàn bộ
+backend trên database PostgreSQL 18.6 riêng chỉ bind loopback:
+
+- `mvnw.cmd -B -ntp verify`: **BUILD SUCCESS**, 245 tests, 0 failures, 0 errors, 0
+  skipped; JDK 21.0.10, Flyway V1–V13, hoàn tất 11:26 ngày 25/11/2026
+  (Asia/Ho_Chi_Minh).
+- Frontend: `npm.cmd run build` thành công cho ba portal; `npm.cmd test` thành công,
+  9 files / 40 tests.
+- Full suite ban đầu chỉ lỗi hai bước chờ lock trong `SeatHoldConcurrencyTest`: test lọc
+  riêng câu SQL `showtime_seats` trong khi luồng đã tuần tự hóa ở khóa phim/phòng. Cập nhật
+  kiểm tra để chờ lock của transaction đối diện; test riêng 9/9 và full suite 245/245 pass.
+
+Database kiểm thử là cluster tạm trong `backend/target/codex-review-postgres` và các
+database `*_review`; không dùng hoặc sửa database dự án. Gateway VNPay thật, app ngân
+hàng, máy in/máy quét vật lý và nghiệm thu giao tiền ngoài hệ thống vẫn chưa được xác minh.

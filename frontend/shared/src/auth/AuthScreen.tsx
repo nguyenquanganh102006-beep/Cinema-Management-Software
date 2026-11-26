@@ -36,19 +36,25 @@ export function AuthScreen({
           <span className="brand-dot">.</span>
         </a>
         <div>
-          <span className="eyebrow">CINEMA MANAGEMENT SYSTEM</span>
+          <span className="eyebrow">
+            {role === "CUSTOMER" ? "ĐẶT VÉ TRỰC TUYẾN" : "CINEMA MANAGEMENT SYSTEM"}
+          </span>
           <h1>
             Mỗi suất chiếu.
             <br />
             Một trải nghiệm.
           </h1>
           <p>
-            Một nơi kết nối hoạt động rạp chiếu phim, nhân viên và khách hàng.
+            {role === "CUSTOMER"
+              ? "Khám phá phim, chọn suất chiếu và đặt vé chỉ trong vài bước."
+              : "Một nơi kết nối hoạt động rạp chiếu phim, nhân viên và khách hàng."}
           </p>
         </div>
-        <p className="intro-bottom">
-          {roles[role].name} Portal <span>●</span> Foundation
-        </p>
+        {role !== "CUSTOMER" && (
+          <p className="intro-bottom">
+            {roles[role].name} Portal <span>●</span> Foundation
+          </p>
+        )}
       </section>
       <section className="auth-panel">
         <div className="auth-card">
@@ -85,7 +91,7 @@ export function AuthScreen({
                 }
                 autoComplete="username"
                 autoCapitalize="none"
-                placeholder="Nhập tên đăng nhập"
+                placeholder={mode === "register" ? "Nhập tên đăng nhập" : "Nhập tên đăng nhập hoặc email"}
                 disabled={busy}
               />
             </label>

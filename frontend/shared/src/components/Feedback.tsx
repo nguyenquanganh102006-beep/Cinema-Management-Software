@@ -2,11 +2,15 @@ export function Feedback({
   loading,
   error,
   empty,
+  emptyTitle = "Chưa có dữ liệu",
+  emptyMessage = "Thử thay đổi bộ lọc hoặc quay lại bước trước để tiếp tục.",
   retry,
 }: {
   loading?: boolean;
   error?: Error | string;
   empty?: boolean;
+  emptyTitle?: string;
+  emptyMessage?: string;
   retry?: () => void;
 }) {
   if (loading) return <div className="loading-state" role="status" aria-busy="true"><span>Đang tải…</span><div className="skeleton" aria-hidden="true" /><div className="skeleton short" aria-hidden="true" /></div>;
@@ -17,6 +21,6 @@ export function Feedback({
         {retry && <button onClick={retry}>Thử lại</button>}
       </div>
     );
-  if (empty) return <div className="empty-state" role="status"><strong>Chưa có dữ liệu</strong><p>Thử thay đổi bộ lọc hoặc quay lại bước trước để tiếp tục.</p>{retry && <button onClick={retry}>Tải lại</button>}</div>;
+  if (empty) return <div className="empty-state" role="status"><strong>{emptyTitle}</strong><p>{emptyMessage}</p>{retry && <button onClick={retry}>Tải lại</button>}</div>;
   return null;
 }

@@ -28,11 +28,16 @@ const menus = {
 export function PortalLayout({ children }: { children: ReactNode }) {
   const { session, error, notice, busy, logout } = useAuth();
   const { pathname } = useLocation();
-  const bookingTitle = /^\/(?:pos\/)?showtimes\/\d+(?:\/book)?$/.test(pathname) ? "Chọn ghế và F&B"
+  const bookingTitle = /^\/(?:pos\/)?showtimes\/\d+(?:\/book)?$/.test(pathname) ? "Đặt vé"
     : /^(?:\/pos)?\/checkout$/.test(pathname) ? "Thanh toán"
     : /^\/pos\/bookings\/\d+\/receipt$/.test(pathname) ? "Vé và hóa đơn"
     : /^\/(?:bookings|transactions)\/\d+$/.test(pathname) ? "Chi tiết giao dịch" : undefined;
-  const pageTitle = bookingTitle ?? [...menus[session.user.role]]
+  const customerPageTitle = session.user.role === "CUSTOMER" && /^\/movies\/\d+$/.test(pathname)
+    ? "Chi tiết phim"
+    : session.user.role === "CUSTOMER" && /^\/bookings\/\d+$/.test(pathname)
+      ? "Chi tiết đặt vé"
+      : undefined;
+  const pageTitle = customerPageTitle ?? bookingTitle ?? [...menus[session.user.role]]
     .sort((a, b) => b[0].length - a[0].length)
     .find(([path]) => pathname === path || (path !== "/" && pathname.startsWith(path + "/")))?.[1]
     ?? (pathname === "/account" ? "Tài khoản" : "Không gian làm việc");
@@ -43,7 +48,6 @@ export function PortalLayout({ children }: { children: ReactNode }) {
         <NavLink className="brand" to="/">
           CINEMA<span className="brand-dot">.</span>
         </NavLink>
-        <p>{session.user.role} Portal</p>
         <nav aria-label="Chức năng">
           {[...menus[session.user.role], ["/account", "Tài khoản"]].map(
             ([path, label]) => (
@@ -70,14 +74,8 @@ export function PortalLayout({ children }: { children: ReactNode }) {
       <main className="workspace-main" id="main-content" tabIndex={-1}>
         <header>
           <div>
-            <p className="eyebrow">{session.user.role} Portal</p>
             <h1>{pageTitle}</h1>
           </div>
-          <span className="pill">
-            {import.meta.env.DEV && import.meta.env.VITE_USE_MOCKS === "true"
-              ? "Dữ liệu mô phỏng"
-              : "API thật"}
-          </span>
         </header>
 
         {error && (
