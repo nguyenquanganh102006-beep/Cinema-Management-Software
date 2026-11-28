@@ -135,11 +135,15 @@ public class PosBookingService {
                                         Collectors.toMap(
                                                 TicketRepository.BookingTicketCount::getBookingId,
                                                 TicketRepository.BookingTicketCount::getTicketCount));
+        Map<Long, Showtime> showtimeById = bookingIds.isEmpty() ? Map.of()
+                : showtimes.findAllById(found.getContent().stream().map(Booking::getShowtimeId).toList()).stream()
+                        .collect(Collectors.toMap(Showtime::getId, Function.identity()));
 
         return PageResponse.from(
                 found,
                 booking -> {
                     Payment payment = paymentByBooking.get(booking.getId());
+                    Showtime showtime = showtimeById.get(booking.getShowtimeId());
                     return new PosBookingSummaryResponse(
                             booking.getId(),
                             booking.getBookingCode(),
@@ -148,7 +152,9 @@ public class PosBookingService {
                             payment == null ? null : payment.getPaymentMethod().name(),
                             payment == null ? null : payment.getStatus().name(),
                             ticketCountByBooking.getOrDefault(booking.getId(), 0L),
-                            refundStatus.getOrDefault(booking.getId(), "NONE"));
+                            refundStatus.getOrDefault(booking.getId(), "NONE"),
+                            showtime == null ? null : showtime.getMovieTitleSnapshot(),
+                            showtime == null ? null : showtime.getStartTime());
                 });
     }
 
@@ -160,8 +166,6 @@ public class PosBookingService {
         if (booking.getChannel() != BookingChannel.POS) throw notFound();
 
         Showtime showtime = showtimes.findById(booking.getShowtimeId()).orElseThrow(PosBookingService::notFound);
-        Movie movie = movies.findById(showtime.getMovieId()).orElseThrow(PosBookingService::notFound);
-        Auditorium room = auditoriums.findById(showtime.getAuditoriumId()).orElse(null);
         Payment payment = payments.findByBookingId(bookingId).orElse(null);
 
         List<BookingSeat> bookedSeats = bookingSeats.findByBookingId(bookingId);
@@ -265,18 +269,19 @@ public class PosBookingService {
                 booking.getPaidAt(),
                 new PosBookingDetailResponse.ShowtimeInfo(
                         showtime.getId(),
-                        movie.getId(),
-                        movie.getTitle(),
-                        movie.getAgeRating(),
+                        showtime.getMovieId(),
+                        showtime.getMovieTitleSnapshot(),
+                        showtime.getAgeRatingSnapshot(),
                         showtime.getAuditoriumId(),
-                        room == null ? null : room.getName(),
+                        showtime.getAuditoriumNameSnapshot(),
                         offset(showtime.getStartTime()),
                         offset(showtime.getEndTime())),
                 seatLines,
                 ticketLines,
                 concessionLines,
                 paymentInfo,
-                performedBy);
+                performedBy,
+                refunds.statuses(List.of(bookingId)).getOrDefault(bookingId, "NONE"));
     }
 
     private static OffsetDateTime offset(Instant instant) {

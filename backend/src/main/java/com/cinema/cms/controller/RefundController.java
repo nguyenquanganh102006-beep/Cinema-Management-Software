@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode="401", description="AUTH_TOKEN_INVALID / AUTH_TOKEN_EXPIRED", content=@io.swagger.v3.oas.annotations.media.Content(schema=@io.swagger.v3.oas.annotations.media.Schema(implementation=ApiErrorResponse.class))),
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode="403", description="ACCESS_DENIED / manager approval errors", content=@io.swagger.v3.oas.annotations.media.Content(schema=@io.swagger.v3.oas.annotations.media.Schema(implementation=ApiErrorResponse.class))),
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode="404", description="BOOKING_NOT_FOUND", content=@io.swagger.v3.oas.annotations.media.Content(schema=@io.swagger.v3.oas.annotations.media.Schema(implementation=ApiErrorResponse.class))),
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode="409", description="RESOURCE_CONFLICT / SEAT_UPDATE_CONFLICT / REFUND_NOT_ELIGIBLE", content=@io.swagger.v3.oas.annotations.media.Content(schema=@io.swagger.v3.oas.annotations.media.Schema(implementation=ApiErrorResponse.class))),
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode="409", description="REFUND_CASH_NOT_CONFIRMED / MANAGER_OVERRIDE_MISMATCH / RESOURCE_CONFLICT / SEAT_UPDATE_CONFLICT / REFUND_NOT_ELIGIBLE", content=@io.swagger.v3.oas.annotations.media.Content(schema=@io.swagger.v3.oas.annotations.media.Schema(implementation=ApiErrorResponse.class))),
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode="422", description="REFUND_NOT_ELIGIBLE / REFUND_DEADLINE_PASSED / TICKET_NOT_REFUNDABLE / TICKET_ALREADY_CANCELLED", content=@io.swagger.v3.oas.annotations.media.Content(schema=@io.swagger.v3.oas.annotations.media.Schema(implementation=ApiErrorResponse.class)))
 })
 public class RefundController {
@@ -31,7 +31,7 @@ public class RefundController {
     }
     @PostMapping(consumes="application/json")
     @PreAuthorize("hasRole('STAFF')")
-    @Operation(summary="Refund selected tickets in cash with manager approval",description="STAFF session plus a matching single-use override. No F&B refund. Repeating the same token and intent returns the existing refund without paying twice.")
+    @Operation(summary="Refund selected tickets in cash after manager confirms handover",description="STAFF session plus a matching single-use override with persisted Manager cash confirmation. No F&B refund. Repeating the same token and intent returns the existing refund without paying twice.")
     public ApiResponse<RefundResponse> refund(@Valid @RequestBody RefundRequest request,@AuthenticationPrincipal SessionPrincipal actor) {
         return new ApiResponse<>(refunds.refund(request,actor));
     }

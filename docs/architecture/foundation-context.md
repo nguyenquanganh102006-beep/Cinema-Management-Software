@@ -212,7 +212,7 @@ Local theo G4:
 
 React + Vite xuất hiện trong kế hoạch ban đầu như đề xuất; G4 chốt React, chưa chốt JS/TypeScript, package manager hoặc version. Java, Spring Boot, PostgreSQL, Maven/Gradle version cũng chưa chốt. Không gọi một lựa chọn version là yêu cầu tài liệu.
 
-Env G4: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`; phần sau dùng `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_PAY_URL`, `VNPAY_RETURN_URL`, `VNPAY_IPN_URL`, `CINEMA_BANK_ACCOUNT`, `CINEMA_BANK_NAME`. Có `application.yml`, `application-local.yml`, `.env.example`; không commit secret. Spring Boot cần cơ chế load env rõ, không mặc định đọc file `.env` chỉ vì file tồn tại.
+Env G4: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`; phần sau dùng `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_PAY_URL`, `VNPAY_RETURN_URL`, `VNPAY_IPN_URL`, `CINEMA_BANK_BIN`, `CINEMA_BANK_ACCOUNT`, `CINEMA_BANK_NAME`. Có `application.yml`, `application-local.yml`, `.env.example`; không commit secret. Spring Boot cần cơ chế load env rõ, không mặc định đọc file `.env` chỉ vì file tồn tại.
 
 Backend/server time là nguồn thời gian nghiệp vụ. Đề xuất timezone nghiệp vụ `Asia/Ho_Chi_Minh`, định dạng API ISO 8601 có offset; SQL hiện là TIMESTAMP không timezone, cần chốt quy ước lưu trữ trước migration.
 
@@ -231,7 +231,7 @@ Khảo sát máy: có `C:\Program Files\PostgreSQL\18`, đã dùng binary pg_res
 | Phone | FR-01 tùy cấu hình; SQL NOT NULL UNIQUE | Chốt bắt buộc/optional và response validation tương ứng |
 | Token/account changes | JWT cũ có thể còn role/status cũ | Xác định kiểm tra account trong request và chính sách đổi password/khóa tài khoản |
 | Ticket state | BR/diagram VALID/CANCELLED; SQL/G5 có USED | Đề xuất VALID/USED/CANCELLED để ngăn quét lại, ghi decision trước module Ticket |
-| Late online payment | SUC-09 cho bán nếu ghế còn trống sau expiry; G1 timeout không phát hành | Chốt exception workflow trước Payment; enum hiện có EXCEPTION_PENDING_DECISION |
+| Late online payment | SUC-09 cho finalize nếu ghế còn trống sau expiry; G1 timeout không phát hành | IPN khóa/recheck ghế nguyên tử; nếu ghế còn AVAILABLE/hold đã hết hạn thì finalize, nếu đã có giao dịch khác thì giữ Payment PAID + EXCEPTION_PENDING_DECISION và đưa vào Manager queue; không tự cấp vé hoặc hoàn tiền ở nhánh exception |
 | Net revenue | G1 ghi valid ticket revenue + F&B - refund, có nguy cơ trừ hoàn hai lần | Chốt gross/refund/net trước Reports; luôn dựa snapshot/payment |
 | Manager Override | Popup Staff cho Manager nhập PIN; API role ghi MANAGER | Cần flow xác thực credential Manager trong session Staff, không yêu cầu Staff logout/đổi access token |
 | UML | SUC-01 text hậu điều kiện copy từ refund; seat diagram ghi timeout tổng 7 phút nhưng chú thích sau gia hạn 4 phút; Ticket diagram không có USED | Không tự chuyển các lỗi biên tập thành yêu cầu code |

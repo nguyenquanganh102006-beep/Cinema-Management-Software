@@ -22,7 +22,8 @@ public record PosBookingDetailResponse(
         List<TicketLine> tickets,
         List<ConcessionLine> concessions,
         PaymentInfo payment,
-        StaffInfo performedBy) {
+        StaffInfo performedBy,
+        String refundStatus) {
 
     public record ShowtimeInfo(
             Long showtimeId,

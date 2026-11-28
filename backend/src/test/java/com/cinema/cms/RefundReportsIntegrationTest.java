@@ -52,9 +52,11 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
     }
     private List<Long> ids(long booking) { return jdbc.queryForList("select ticket_id from tickets where booking_id=? order by ticket_id",Long.class,booking); }
     private String code(long ticket) { return jdbc.queryForObject("select ticket_code from tickets where ticket_id=?",String.class,ticket); }
-    private ManagerOverrideRequest approval(long booking,List<Long> ids) { return new ManagerOverrideRequest(manager.getUsername(),"123456","REFUND_APPROVAL",booking,ids,"Customer request",true); }
+    private ManagerOverrideRequest approval(long booking,List<Long> ids) { return new ManagerOverrideRequest(manager.getUsername(),"123456","REFUND_APPROVAL",booking,ids,"Customer request"); }
     private RefundRequest request(long booking,List<Long> ids) {
-        return new RefundRequest(booking,ids,"Customer request",refunds.approve(approval(booking,ids),staff).overrideToken(),true);
+        String token=refunds.approve(approval(booking,ids),staff).overrideToken();
+        refunds.confirmCash(new ManagerCashConfirmationRequest(token),staff);
+        return new RefundRequest(booking,ids,"Customer request",token);
     }
     private String ticketStatus(long ticket) { return jdbc.queryForObject("select status::text from tickets where ticket_id=?",String.class,ticket); }
     private int records(long booking) { return jdbc.queryForObject("select count(*) from refund_records where booking_id=?",Integer.class,booking); }
@@ -95,30 +97,38 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
     }
     @Test void usedTicketCannotGetApproval() {
         var b=paid(List.of(a1),false,null);long id=ids(b.bookingId()).getFirst();
-        ticketService.validate(new TicketValidationRequest(code(id),null),staff);
+        ticketService.validate(new TicketValidationRequest(code(id),show,null),staff);
         assertThatThrownBy(() -> refunds.approve(approval(b.bookingId(),List.of(id)),staff)).isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("TICKET_NOT_REFUNDABLE"));
     }
     @Test void approvalBindsSessionSelectionReasonAndCashConfirmation() {
         var b=paid(List.of(a1,a2),false,null);var ids=ids(b.bookingId());var req=request(b.bookingId(),List.of(ids.getFirst()));
         assertThatThrownBy(() -> refunds.refund(req,otherSession)).isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> refunds.refund(new RefundRequest(b.bookingId(),List.of(ids.get(1)),req.reason(),req.overrideToken(),true),staff)).isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> refunds.refund(new RefundRequest(b.bookingId(),req.ticketIds(),"Changed",req.overrideToken(),true),staff)).isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> refunds.refund(new RefundRequest(b.bookingId(),req.ticketIds(),req.reason(),req.overrideToken(),false),staff)).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> refunds.refund(new RefundRequest(b.bookingId(),List.of(ids.get(1)),req.reason(),req.overrideToken()),staff)).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> refunds.refund(new RefundRequest(b.bookingId(),req.ticketIds(),"Changed",req.overrideToken()),staff)).isInstanceOf(ApiException.class);
+        var unconfirmed=refunds.approve(approval(b.bookingId(),List.of(ids.get(1))),staff);
+        assertThatThrownBy(() -> refunds.refund(new RefundRequest(b.bookingId(),List.of(ids.get(1)),"Customer request",unconfirmed.overrideToken()),staff))
+            .isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("REFUND_CASH_NOT_CONFIRMED"));
         assertThat(records(b.bookingId())).isZero();assertThat(ticketStatus(ids.getFirst())).isEqualTo("VALID");
+        clock.advance(181);
+        assertThat(refunds.refund(req,staff).status()).isEqualTo("COMPLETED");
+        assertThat(records(b.bookingId())).isEqualTo(1);
     }
-    @Test void expiryAndRevokedManagerApprovalAreRejected() {
-        var b=paid(List.of(a1),false,null);var req=request(b.bookingId(),ids(b.bookingId()));clock.advance(180);
-        assertThatThrownBy(() -> refunds.refund(req,staff)).isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("MANAGER_OVERRIDE_EXPIRED"));
-        var fresh=request(b.bookingId(),ids(b.bookingId()));manager.changeStatus(AccountStatus.LOCKED);users.saveAndFlush(manager);
-        assertThatThrownBy(() -> refunds.refund(fresh,staff)).isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("MANAGER_PIN_INVALID"));
-        assertThat(records(b.bookingId())).isZero();
+    @Test void unusedApprovalExpiresAndRevokedManagerCannotConfirmCash() {
+        var b=paid(List.of(a1),false,null);var unused=refunds.approve(approval(b.bookingId(),ids(b.bookingId())),staff);clock.advance(180);
+        assertThatThrownBy(() -> refunds.confirmCash(new ManagerCashConfirmationRequest(unused.overrideToken()),staff)).isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("MANAGER_OVERRIDE_EXPIRED"));
+        assertThatThrownBy(() -> refunds.refund(new RefundRequest(b.bookingId(),ids(b.bookingId()),"Customer request",unused.overrideToken()),staff))
+            .isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("MANAGER_OVERRIDE_EXPIRED"));
+        var freshBooking=paid(List.of(a2),false,null);var fresh=refunds.approve(approval(freshBooking.bookingId(),ids(freshBooking.bookingId())),staff);
+        manager.changeStatus(AccountStatus.LOCKED);users.saveAndFlush(manager);
+        assertThatThrownBy(() -> refunds.confirmCash(new ManagerCashConfirmationRequest(fresh.overrideToken()),staff)).isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("MANAGER_PIN_INVALID"));
+        assertThat(records(b.bookingId())).isZero();assertThat(records(freshBooking.bookingId())).isZero();
     }
     @Test void wrongPinCustomerAndMixedBookingCannotApprove() {
         var b=paid(List.of(a1),false,null);var ids=ids(b.bookingId());
-        var bad=new ManagerOverrideRequest(manager.getUsername(),"000000","REFUND_APPROVAL",b.bookingId(),ids,"Customer request",true);
+        var bad=new ManagerOverrideRequest(manager.getUsername(),"000000","REFUND_APPROVAL",b.bookingId(),ids,"Customer request");
         assertThatThrownBy(() -> refunds.approve(bad,staff)).isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> refunds.approve(new ManagerOverrideRequest(staff.username(),"123456","REFUND_APPROVAL",b.bookingId(),ids,"Customer request",true),staff)).isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> refunds.approve(new ManagerOverrideRequest(manager.getUsername(),"invalid","REFUND_APPROVAL",b.bookingId(),ids,"Customer request",true),staff)).isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getStatus()).isEqualTo(400));
+        assertThatThrownBy(() -> refunds.approve(new ManagerOverrideRequest(staff.username(),"123456","REFUND_APPROVAL",b.bookingId(),ids,"Customer request"),staff)).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> refunds.approve(new ManagerOverrideRequest(manager.getUsername(),"invalid","REFUND_APPROVAL",b.bookingId(),ids,"Customer request"),staff)).isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getStatus()).isEqualTo(400));
         assertThatThrownBy(() -> refunds.approve(approval(b.bookingId(),ids),customer)).isInstanceOf(ApiException.class);
         var other=paid(List.of(a2),false,null);
         assertThatThrownBy(() -> refunds.approve(approval(b.bookingId(),ids(other.bookingId())),staff)).isInstanceOf(ApiException.class);
@@ -142,7 +152,7 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
         var results=parallel(() -> refunds.refund(first,staff),() -> refunds.refund(second,staff));
         assertThat(results.stream().filter(RefundResponse.class::isInstance)).hasSize(1);assertThat(records(b.bookingId())).isEqualTo(1);
         var other=paid(List.of(a2),false,null);long t=ids(other.bookingId()).getFirst();var req=request(other.bookingId(),List.of(t));
-        var scan=parallel(() -> refunds.refund(req,staff),() -> ticketService.validate(new TicketValidationRequest(code(t),null),staff));
+        var scan=parallel(() -> refunds.refund(req,staff),() -> ticketService.validate(new TicketValidationRequest(code(t),show,null),staff));
         assertThat(scan.stream().filter(r -> !(r instanceof ApiException))).hasSize(1);
         assertThat(ticketStatus(t)).isIn("USED","CANCELLED");
     }
@@ -228,10 +238,12 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
         assertThatThrownBy(() -> reports.ranking(date,date,"SIDEWAYS",5)).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> reports.ranking(date,date,"ASC",0)).isInstanceOf(ApiException.class);
     }
-    @Test void managerSecurityVersionChangeInvalidatesUnconsumedApproval() {
-        var b=paid(List.of(a1),false,null);var req=request(b.bookingId(),ids(b.bookingId()));
+    @Test void managerSecurityVersionChangeInvalidatesUnconfirmedCashHandover() {
+        var b=paid(List.of(a1),false,null);
+        var approved=refunds.approve(approval(b.bookingId(),ids(b.bookingId())),staff);
         manager.invalidateSessions();users.saveAndFlush(manager);
-        assertThatThrownBy(() -> refunds.refund(req,staff)).isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("MANAGER_PIN_INVALID"));
+        assertThatThrownBy(() -> refunds.confirmCash(new ManagerCashConfirmationRequest(approved.overrideToken()),staff))
+            .isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getCode()).isEqualTo("MANAGER_PIN_INVALID"));
         assertThat(records(b.bookingId())).isZero();
     }
     @Test void exceptionPaidIsSeparateAndEmptyPeriodsAndInvalidDatesAreHandled() {
@@ -240,6 +252,12 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
         jdbc.update("update bookings set status='EXCEPTION_PENDING_DECISION' where booking_id=?",b.bookingId());
         jdbc.update("insert into payments(booking_id,payment_method,amount,status,paid_at) values (?,'GATEWAY_ONLINE',?,'PAID',?)",b.bookingId(),b.totalAmount(),Timestamp.from(clock.instant()));
         assertThat(reports.revenue(date,date).totalRevenue()).isZero();assertThat(reports.revenue(date,date).exceptionPaidAmount()).isEqualByComparingTo(b.totalAmount());
+        assertThat(reports.paymentExceptions(50)).singleElement().satisfies(exception -> {
+            assertThat(exception.bookingCode()).isEqualTo(b.bookingCode());
+            assertThat(exception.amount()).isEqualByComparingTo(b.totalAmount());
+            assertThat(exception.reasonCode()).isEqualTo("MANUAL_REVIEW_REQUIRED");
+        });
+        assertThatThrownBy(() -> reports.paymentExceptions(101)).isInstanceOf(ApiException.class);
         assertThat(reports.occupancy("2200-01-01","2200-01-01").occupancyRate()).isZero();
         assertThat(reports.ranking("2200-01-01","2200-01-01","DESC",5).movies()).isEmpty();
         assertThatThrownBy(() -> reports.revenue(date,"bad")).isInstanceOf(ApiException.class);
@@ -250,6 +268,8 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
             mvc.perform(get("/api/v1/reports/"+route).param("from",date).param("to",date).header("Authorization","Bearer "+staffJwt)).andExpect(status().isForbidden());
             mvc.perform(get("/api/v1/reports/"+route).param("from",date).param("to",date).header("Authorization","Bearer "+managerJwt)).andExpect(status().isOk());
         }
+        mvc.perform(get("/api/v1/reports/payment-exceptions").header("Authorization","Bearer "+staffJwt)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/reports/payment-exceptions").header("Authorization","Bearer "+managerJwt)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/refunds/eligibility").param("bookingCode","x").header("Authorization","Bearer "+customerJwt)).andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/reports/revenue").param("from",date).header("Authorization","Bearer "+managerJwt)).andExpect(status().isBadRequest());
     }
@@ -258,8 +278,11 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
         String body=mvc.perform(post("/api/v1/manager-overrides").header("Authorization","Bearer "+staffJwt).contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(approval(b.bookingId(),ids))))
             .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         String token=mapper.readTree(body).path("data").path("overrideToken").asText();
+        mvc.perform(post("/api/v1/manager-overrides/cash-confirmation").header("Authorization","Bearer "+staffJwt).contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsString(new ManagerCashConfirmationRequest(token))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.cashConfirmedAt").isNotEmpty());
         mvc.perform(post("/api/v1/refunds").header("Authorization","Bearer "+staffJwt).contentType(MediaType.APPLICATION_JSON)
-            .content(mapper.writeValueAsString(new RefundRequest(b.bookingId(),ids,"Customer request",token,true))))
+            .content(mapper.writeValueAsString(new RefundRequest(b.bookingId(),ids,"Customer request",token))))
             .andExpect(status().isOk()).andExpect(jsonPath("$.data.refundStatus").value("FULL"));
         mvc.perform(get("/api/v1/pos/bookings").param("bookingCode",b.bookingCode()).header("Authorization","Bearer "+staffJwt))
             .andExpect(status().isOk()).andExpect(jsonPath("$.data.items[0].refundStatus").value("FULL"));
@@ -268,7 +291,7 @@ class RefundReportsIntegrationTest extends SeatHoldTestSupport {
         for (String deniedJwt:List.of(customerJwt,managerJwt)) {
             mvc.perform(post("/api/v1/manager-overrides").header("Authorization","Bearer "+deniedJwt).contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(approval(b.bookingId(),ids))))
                 .andExpect(status().isForbidden());
-            mvc.perform(post("/api/v1/refunds").header("Authorization","Bearer "+deniedJwt).contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(new RefundRequest(b.bookingId(),ids,"Customer request",token,true))))
+            mvc.perform(post("/api/v1/refunds").header("Authorization","Bearer "+deniedJwt).contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(new RefundRequest(b.bookingId(),ids,"Customer request",token))))
                 .andExpect(status().isForbidden());
         }
     }

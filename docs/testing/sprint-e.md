@@ -97,7 +97,7 @@ nguồn chính xác trong mã.
 | TC-E-061 | VnPayPaymentIntegrationTest — `invalidSignatureIsRejectedWith97` | Sai chữ ký trả `"97"` |
 | TC-E-062 | VnPayPaymentIntegrationTest — `wrongAmountIsRejectedWith04` | Sai số tiền trả `"04"` |
 | TC-E-063 | VnPayPaymentIntegrationTest — `failedGatewayResponseMarksPaymentFailedAndBlocksRetry` | Gateway trả lỗi ghi Payment FAILED và chặn retry |
-| TC-E-064 | VnPayPaymentIntegrationTest — `successfulIpnAfterHoldExpiryParksBookingForManualDecision` | IPN thành công sau khi hold hết hạn → `EXCEPTION_PENDING_DECISION`, trả `"00"` |
+| TC-E-064 | VnPayPaymentIntegrationTest — late IPN with seat recovery | IPN thành công sau khi hold hết hạn: nếu ghế vẫn AVAILABLE thì Booking được thanh toán và cấp vé; nếu giao dịch khác đã lấy ghế thì giữ EXCEPTION_PENDING_DECISION, không phát hành vé, trả "00" |
 | TC-E-065 | VnPayPaymentIntegrationTest — `priceChangedAfterBookingParksBookingForManualDecision` | Giá đổi sau Booking → `EXCEPTION_PENDING_DECISION`, trả `"00"` |
 | TC-E-066 | VnPayPaymentIntegrationTest — `anotherCustomerCannotCreatePaymentForTheBooking` | CUSTOMER khác nhận 404 |
 | TC-E-067 | VnPayPaymentIntegrationTest — `staffCannotCallTheCustomerPaymentEndpoint` | STAFF gọi endpoint CUSTOMER nhận 403 |

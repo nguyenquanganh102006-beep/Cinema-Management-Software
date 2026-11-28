@@ -1,6 +1,6 @@
 # Authentication API
 
-Base: `http://localhost:8080/api/v1`. JSON request keys are strict; unknown fields return 400. Success is `{ "data": ... }`. Protected calls use `Authorization: Bearer <accessToken>`.
+Base: `http://localhost:8081/api/v1` for the local setup. JSON request keys are strict; unknown fields return 400. Success is `{ "data": ... }`. Protected calls use `Authorization: Bearer <accessToken>`.
 
 | Method | Path | Permission | Success |
 |---|---|---|---|

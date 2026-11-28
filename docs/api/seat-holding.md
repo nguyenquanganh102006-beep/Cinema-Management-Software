@@ -81,6 +81,7 @@ DELETE release cả nhóm đang thuộc token và đúng phiên. Gọi lại tr�
 | 403 | ACCESS_DENIED | Sai role; Customer gia hạn |
 | 403 | SEAT_HOLD_NOT_OWNED | Hold còn tồn tại nhưng thuộc phiên khác |
 | 404 | SHOWTIME_NOT_FOUND | Không có suất chiếu |
+| 409 | SHOWTIME_UNAVAILABLE | Suất có Movie hoặc Auditorium đang ngừng hoạt động |
 | 409 | SHOWTIME_STARTED | Suất đã bắt đầu sau khi lấy lock |
 | 409 | SEAT_INVENTORY_INCOMPLETE | Inventory thiếu/thừa mapping với physical seats |
 | 409 | SWEETBOX_PAIR_INVALID | Layout Sweetbox legacy sai |

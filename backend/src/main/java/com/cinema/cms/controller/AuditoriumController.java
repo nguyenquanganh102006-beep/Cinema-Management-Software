@@ -2,6 +2,7 @@ package com.cinema.cms.controller;
 
 import com.cinema.cms.dto.*;
 import com.cinema.cms.service.AuditoriumService;
+import com.cinema.cms.service.SessionPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -12,6 +13,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -45,8 +47,9 @@ public class AuditoriumController {
     @ApiResponses({@ApiResponse(responseCode = "201", description = "Đã tạo phòng"),
             @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: thiếu hoặc sai trường, loại phòng không hợp lệ"),
             @ApiResponse(responseCode = "409", description = "AUDITORIUM_NAME_EXISTS")})
-    public com.cinema.cms.dto.ApiResponse<AuditoriumResponse> create(@Valid @RequestBody AuditoriumRequest request) {
-        return new com.cinema.cms.dto.ApiResponse<>(auditoriums.create(request));
+    public com.cinema.cms.dto.ApiResponse<AuditoriumResponse> create(@Valid @RequestBody AuditoriumRequest request,
+            @AuthenticationPrincipal SessionPrincipal user) {
+        return new com.cinema.cms.dto.ApiResponse<>(auditoriums.create(request, user.userId()));
     }
 
     @PatchMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -54,15 +57,17 @@ public class AuditoriumController {
     @ApiResponses({@ApiResponse(responseCode = "200", description = "Phòng sau khi cập nhật"), @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR"),
             @ApiResponse(responseCode = "404", description = "AUDITORIUM_NOT_FOUND"),
             @ApiResponse(responseCode = "409", description = "AUDITORIUM_NAME_EXISTS hoặc AUDITORIUM_CAPACITY_BELOW_SEATS")})
-    public com.cinema.cms.dto.ApiResponse<AuditoriumResponse> update(@PathVariable Integer id, @Valid @RequestBody AuditoriumRequest request) {
-        return new com.cinema.cms.dto.ApiResponse<>(auditoriums.update(id, request));
+    public com.cinema.cms.dto.ApiResponse<AuditoriumResponse> update(@PathVariable Integer id, @Valid @RequestBody AuditoriumRequest request,
+            @AuthenticationPrincipal SessionPrincipal user) {
+        return new com.cinema.cms.dto.ApiResponse<>(auditoriums.update(id, request, user.userId()));
     }
 
     @PatchMapping(value = "/{id}/status", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Bật hoặc tạm ngưng phòng chiếu")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "Phòng sau khi đổi trạng thái"), @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR"),
             @ApiResponse(responseCode = "404", description = "AUDITORIUM_NOT_FOUND")})
-    public com.cinema.cms.dto.ApiResponse<AuditoriumResponse> changeStatus(@PathVariable Integer id, @Valid @RequestBody AuditoriumStatusRequest request) {
-        return new com.cinema.cms.dto.ApiResponse<>(auditoriums.changeStatus(id, request));
+    public com.cinema.cms.dto.ApiResponse<AuditoriumResponse> changeStatus(@PathVariable Integer id, @Valid @RequestBody AuditoriumStatusRequest request,
+            @AuthenticationPrincipal SessionPrincipal user) {
+        return new com.cinema.cms.dto.ApiResponse<>(auditoriums.changeStatus(id, request, user.userId()));
     }
 }

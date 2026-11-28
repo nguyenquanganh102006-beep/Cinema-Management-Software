@@ -26,7 +26,9 @@ Sắp xếp `createdAt DESC, bookingId DESC`. Chỉ trả Booking có `user_id` 
         "totalAmount": 190000.00,
         "createdAt": "2030-01-04T10:00:00Z",
         "paidAt": "2030-01-04T10:01:00Z",
-        "showtimeId": 10
+        "showtimeId": 10,
+        "movieTitle": "Lat Mat 7: Mot Dieu Uoc",
+        "showtimeStartsAt": "2030-01-05T13:00:00Z"
       }
     ],
     "page": 0,

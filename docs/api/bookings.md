@@ -17,7 +17,7 @@ Giá mỗi ghế vật lý:
 
 ```text
 finalPrice = showtimes.base_price
-           + ROOM_SURCHARGE(auditorium_type)
+           + ROOM_SURCHARGE(showtimes.auditorium_type_snapshot)
            + SEAT_SURCHARGE(seat_type)
            + TIME_SURCHARGE
 ```
@@ -112,7 +112,9 @@ Trong một transaction `READ_COMMITTED`:
 
 ### Một hold chỉ tạo một Booking
 
-Chọn **409 `BOOKING_ALREADY_EXISTS`**. Retry sau khi tạo thành công sẽ nhận 409 thay vì trả lại Booking cũ, để client không tưởng là một giao dịch mới. Kiểm tra tồn tại được chạy trước khi khóa ghế và chạy lại sau khi đã khóa; vì vậy hai request đồng thời cùng token bị tuần tự hóa và chỉ một request tạo được Booking. Client nên dùng `GET /bookings/{id}` hoặc màn hình lịch sử để xem lại.
+Chọn **409 `BOOKING_ALREADY_EXISTS`**. Retry sau khi tạo thành công sẽ nhận 409 thay vì trả lại Booking cũ, để client không tưởng là một giao dịch mới. Kiểm tra tồn tại được chạy trước khi khóa ghế và chạy lại sau khi đã khóa; vì vậy hai request đồng thời cùng token bị tuần tự hóa và chỉ một request tạo được Booking.
+
+Từ 23/11/2026, lỗi này có thêm `details: {"bookingId":"123"}` khi booking thuộc user/staff hiện tại **và holdOwner khớp chính xác phiên JWT**. Phiên khác, kể cả cùng tài khoản, không có ID trong details. Client dùng ID để GET `/bookings/{id}` và đọc snapshot đã lưu, không coi payload lần thử lại là nội dung đơn. Check duplicate chạy trước deadline nên có thể readback đơn đã commit khi hold đã hết hạn; lần tạo chưa commit và hold hết thì vẫn từ chối. Xem [ADR 007](../decisions/007-booking-create-recovery.md).
 
 ### Lỗi nghiệp vụ
 
@@ -127,6 +129,7 @@ Chọn **409 `BOOKING_ALREADY_EXISTS`**. Retry sau khi tạo thành công sẽ n
 | 404 | `CONCESSION_ITEM_NOT_FOUND` | `itemId` không tồn tại |
 | 409 | `BOOKING_ALREADY_EXISTS` | Hold đã tạo Booking |
 | 409 | `SEAT_HOLD_EXPIRED` | Hold hết hạn hoặc đã bị release |
+| 409 | `SHOWTIME_UNAVAILABLE` | Phim hoặc phòng của suất đang ngừng hoạt động |
 | 409 | `SEAT_HOLD_MISMATCH` | Token không thuộc đúng suất/nhóm ghế |
 | 422 | `AGE_CONFIRMATION_REQUIRED` | CUSTOMER chưa xác nhận tuổi |
 | 422 | `CONCESSION_ITEM_INACTIVE` | Sản phẩm F&B đã ngừng bán |

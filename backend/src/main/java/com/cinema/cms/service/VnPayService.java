@@ -49,6 +49,7 @@ public class VnPayService {
     private final ShowtimeSeatRepository inventory;
     private final CheckoutService checkout;
     private final Clock clock;
+    private final AuditEventService auditEvents;
     private final SecureRandom random = new SecureRandom();
     private final TransactionTemplate tx;
 
@@ -66,6 +67,7 @@ public class VnPayService {
             ShowtimeSeatRepository inventory,
             CheckoutService checkout,
             Clock clock,
+            AuditEventService auditEvents,
             PlatformTransactionManager transactionManager,
             @Value("${app.payments.vnpay.tmn-code:}") String tmnCode,
             @Value("${app.payments.vnpay.hash-secret:}") String hashSecret,
@@ -79,6 +81,7 @@ public class VnPayService {
         this.inventory = inventory;
         this.checkout = checkout;
         this.clock = clock;
+        this.auditEvents = auditEvents;
         this.tmnCode = strip(tmnCode);
         this.hashSecret = strip(hashSecret);
         this.payUrl = strip(payUrl);
@@ -138,6 +141,9 @@ public class VnPayService {
                     payment.getAmount(),
                     txnRef,
                     expiresAt);
+            auditEvents.record(customerId, "VNPAY_PAYMENT_CREATED", "SUCCESS", "PAYMENT", payment.getId(),
+                    "bookingId=" + bookingId + "; amount=" + payment.getAmount()
+                            + "; txnRef=" + txnRef + "; expiresAt=" + expiresAt);
             return new VnPayPaymentResponse(paymentUrl, expiresAt);
         } catch (ApiException e) {
             audit.warn(
@@ -197,17 +203,27 @@ public class VnPayService {
         try {
             if (!hashConfigured()) {
                 audit.error("action=VNPAY_IPN result=ERROR reason=CONFIGURATION_MISSING");
+                auditIpn("ERROR", null, "reason=CONFIGURATION_MISSING");
                 return ipn("99");
             }
             if (!verifySignature(params) || !tmnMatches(params)) {
                 audit.warn("action=VNPAY_IPN result=REJECTED code=VNPAY_INVALID_SIGNATURE");
+                auditIpn("REJECTED", null, "reason=INVALID_SIGNATURE");
                 return ipn("97");
             }
 
             String txnRef = params.get("vnp_TxnRef");
-            if (txnRef == null || txnRef.isBlank()) return ipn("01");
+            if (txnRef == null || txnRef.isBlank()) {
+                auditIpn("REJECTED", null, "reason=MISSING_TRANSACTION_REFERENCE");
+                return ipn("01");
+            }
             String responseCode = params.get("vnp_ResponseCode");
-            if (responseCode == null || responseCode.isBlank()) return ipn("99");
+            String transactionStatus = params.get("vnp_TransactionStatus");
+            if (responseCode == null || responseCode.isBlank()
+                    || transactionStatus == null || transactionStatus.isBlank()) {
+                auditIpn("REJECTED", txnRef, "reason=MISSING_PAYMENT_RESULT");
+                return ipn("99");
+            }
 
             IpnPreparation prepared =
                     tx.execute(
@@ -216,15 +232,19 @@ public class VnPayService {
                                             txnRef,
                                             params.get("vnp_Amount"),
                                             responseCode,
+                                            transactionStatus,
                                             params.get("vnp_TransactionNo"),
                                             params.get("vnp_SecureHash")));
-            if (prepared == null) return ipn("99");
+            if (prepared == null) {
+                auditIpn("ERROR", txnRef, "reason=IPN_PREPARATION_FAILED");
+                return ipn("99");
+            }
 
             return switch (prepared.outcome()) {
-                case NOT_FOUND -> ipn("01");
-                case INVALID -> ipn("99");
-                case AMOUNT_MISMATCH -> ipn("04");
-                case TERMINAL -> ipn("02");
+                case NOT_FOUND -> { auditIpn("REJECTED", txnRef, "reason=PAYMENT_NOT_FOUND"); yield ipn("01"); }
+                case INVALID -> { auditIpn("REJECTED", txnRef, "reason=INVALID_PAYMENT_STATE"); yield ipn("99"); }
+                case AMOUNT_MISMATCH -> { auditIpn("REJECTED", txnRef, "reason=AMOUNT_MISMATCH"); yield ipn("04"); }
+                case TERMINAL -> { auditIpn("DUPLICATE", txnRef, "reason=PAYMENT_TERMINAL"); yield ipn("02"); }
                 case FAILED -> {
                     audit.info(
                             "action=VNPAY_IPN result=FAILED bookingId={} paymentId={} txnRef={}"
@@ -233,7 +253,15 @@ public class VnPayService {
                             prepared.paymentId(),
                             txnRef,
                             responseCode);
+                    auditIpn("FAILED", String.valueOf(prepared.paymentId()),
+                            "bookingId=" + prepared.bookingId() + "; responseCode=" + responseCode);
                     yield ipn("00");
+                }
+                case REVIEW -> preserveForManualDecision(
+                        prepared, txnRef, responseCode, transactionStatus);
+                case RETRY -> {
+                    auditIpn("RETRY", txnRef, "reason=TRANSACTION_NOT_FINAL");
+                    yield ipn("99");
                 }
                 case READY -> finalizeIpn(prepared, txnRef, params.get("vnp_TransactionNo"));
             };
@@ -241,15 +269,41 @@ public class VnPayService {
             // Exception messages and SQL can contain sensitive values; log only the type.
             audit.error(
                     "action=VNPAY_IPN result=ERROR type={}", e.getClass().getSimpleName());
+            auditIpn("ERROR", null, "exceptionType=" + e.getClass().getSimpleName());
             return ipn("99");
         }
+    }
+
+    /** Keeps funds that may have been debited out of the normal delivery flow. */
+    private VnPayIpnResponse preserveForManualDecision(
+            IpnPreparation prepared, String txnRef, String responseCode, String transactionStatus) {
+        ExceptionOutcome outcome = markException(prepared.bookingId(), txnRef);
+        if (outcome == ExceptionOutcome.ALREADY_PAID) return ipn("02");
+        if (outcome == ExceptionOutcome.MARKED || outcome == ExceptionOutcome.ALREADY_MARKED) {
+            audit.error(
+                    "action=VNPAY_IPN result=EXCEPTION_PENDING_DECISION"
+                            + " bookingId={} paymentId={} txnRef={} responseCode={} transactionStatus={}",
+                    prepared.bookingId(),
+                    prepared.paymentId(),
+                    txnRef,
+                    responseCode,
+                    transactionStatus);
+            auditIpn(
+                    "EXCEPTION_PENDING_DECISION",
+                    String.valueOf(prepared.paymentId()),
+                    "bookingId=" + prepared.bookingId()
+                            + "; responseCode=" + responseCode
+                            + "; transactionStatus=" + transactionStatus);
+            return ipn("00");
+        }
+        return ipn("99");
     }
 
     private VnPayIpnResponse finalizeIpn(
             IpnPreparation prepared, String txnRef, String transactionNo) {
         try {
             CheckoutResult result =
-                    checkout.finalizePaid(
+                    checkout.finalizePaidOnline(
                             prepared.bookingId(),
                             PaymentMethod.GATEWAY_ONLINE,
                             prepared.amount());
@@ -263,6 +317,9 @@ public class VnPayService {
                     transactionNo,
                     result.payment().getAmount(),
                     result.tickets().size());
+            auditIpn("PAID", String.valueOf(result.payment().getId()),
+                    "bookingId=" + result.booking().getId() + "; amount=" + result.payment().getAmount()
+                            + "; txnRef=" + txnRef + "; tickets=" + result.tickets().size());
             return ipn("00");
         } catch (ApiException e) {
             if ("BOOKING_ALREADY_PAID".equals(e.getCode())) {
@@ -298,6 +355,8 @@ public class VnPayService {
                         txnRef,
                         prepared.amount(),
                         e.getCode());
+                auditIpn("EXCEPTION_PENDING_DECISION", String.valueOf(prepared.paymentId()),
+                        "bookingId=" + prepared.bookingId() + "; reason=" + e.getCode());
                 return ipn("00");
             }
             return ipn("99");
@@ -313,6 +372,7 @@ public class VnPayService {
             String txnRef,
             String rawAmount,
             String responseCode,
+            String transactionStatus,
             String transactionNo,
             String secureHash) {
         Payment payment = payments.findByVnpTxnRefForUpdate(txnRef).orElse(null);
@@ -333,7 +393,27 @@ public class VnPayService {
         }
         if (booking.getStatus() != BookingStatus.PENDING) return IpnPreparation.invalid();
 
-        if (!SUCCESS.equals(responseCode)) {
+        if ("07".equals(responseCode)
+                || "07".equals(transactionStatus)
+                || "04".equals(transactionStatus)
+                || (SUCCESS.equals(transactionStatus) && !SUCCESS.equals(responseCode))) {
+            if (transactionNo == null || transactionNo.isBlank()
+                    || secureHash == null || secureHash.isBlank()) {
+                return IpnPreparation.invalid();
+            }
+            Payment duplicate = payments.findByGatewayTransactionCode(transactionNo).orElse(null);
+            if (duplicate != null && !duplicate.getId().equals(payment.getId())) {
+                return IpnPreparation.invalid();
+            }
+            payment.recordGatewayResult(transactionNo, secureHash);
+            payments.saveAndFlush(payment);
+            return IpnPreparation.review(payment, booking);
+        }
+
+        if ("01".equals(transactionStatus)) return IpnPreparation.retry();
+
+        if (!SUCCESS.equals(responseCode) || !SUCCESS.equals(transactionStatus)) {
+            if (!"02".equals(transactionStatus)) return IpnPreparation.retry();
             payment.markFailed();
             payments.saveAndFlush(payment);
             return IpnPreparation.failed(payment, booking);
@@ -533,11 +613,7 @@ public class VnPayService {
                                                 404,
                                                 "SHOWTIME_NOT_FOUND",
                                                 "Không tìm thấy suất chiếu"));
-        return movies
-                .findById(showtime.getMovieId())
-                .orElseThrow(
-                        () -> new ApiException(404, "MOVIE_NOT_FOUND", "Không tìm thấy phim"))
-                .getAgeRating();
+        return showtime.getAgeRatingSnapshot();
     }
 
     private void requireAgeConfirmation(Booking booking) {
@@ -638,6 +714,14 @@ public class VnPayService {
         };
     }
 
+    private void auditIpn(String outcome, String subjectId, String details) {
+        try {
+            auditEvents.recordIndependent(null, "VNPAY_IPN", outcome, "PAYMENT", subjectId, details);
+        } catch (RuntimeException e) {
+            audit.error("action=VNPAY_IPN_AUDIT result=ERROR type={}", e.getClass().getSimpleName());
+        }
+    }
+
     private static ApiException configurationMissing() {
         return new ApiException(
                 503,
@@ -688,6 +772,8 @@ public class VnPayService {
         AMOUNT_MISMATCH,
         TERMINAL,
         FAILED,
+        REVIEW,
+        RETRY,
         READY
     }
 
@@ -722,6 +808,18 @@ public class VnPayService {
                     payment.getId(),
                     booking.getId(),
                     payment.getAmount());
+        }
+
+        static IpnPreparation review(Payment payment, Booking booking) {
+            return new IpnPreparation(
+                    IpnOutcome.REVIEW,
+                    payment.getId(),
+                    booking.getId(),
+                    payment.getAmount());
+        }
+
+        static IpnPreparation retry() {
+            return new IpnPreparation(IpnOutcome.RETRY, null, null, null);
         }
 
         static IpnPreparation ready(Payment payment, Booking booking) {

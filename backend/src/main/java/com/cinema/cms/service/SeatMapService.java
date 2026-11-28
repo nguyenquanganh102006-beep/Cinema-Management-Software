@@ -14,6 +14,7 @@ public class SeatMapService {
   private final SeatRepository seats;
   private final ShowtimeSeatRepository inventory;
   private final HoldOwnershipService ownership;
+  private final ShowtimeSaleGuard saleGuard;
   private final Clock clock;
 
   public SeatMapService(
@@ -21,11 +22,13 @@ public class SeatMapService {
       SeatRepository seats,
       ShowtimeSeatRepository inventory,
       HoldOwnershipService ownership,
+      ShowtimeSaleGuard saleGuard,
       Clock clock) {
     this.showtimes = showtimes;
     this.seats = seats;
     this.inventory = inventory;
     this.ownership = ownership;
+    this.saleGuard = saleGuard;
     this.clock = clock;
   }
 
@@ -33,11 +36,7 @@ public class SeatMapService {
   public SeatMapResponse map(Long id, SessionPrincipal principal) {
     SeatHoldService.validateShowtimeId(id);
     String owner = ownership.owner(principal);
-    var show =
-        showtimes
-            .findById(id)
-            .orElseThrow(
-                () -> new ApiException(404, "SHOWTIME_NOT_FOUND", "Không tìm thấy suất chiếu"));
+    var show = saleGuard.requireSaleable(id);
     var physical = seats.findByAuditoriumIdOrderBySeatRowAscSeatNumberAsc(show.getAuditoriumId());
     var rows = inventory.findByShowtimeIdOrderBySeatId(id);
     Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);

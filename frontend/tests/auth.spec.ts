@@ -10,6 +10,7 @@ async function login(page: Page, username: string) {
   await page.getByLabel("Tên đăng nhập hoặc email").fill(username);
   await page.getByLabel("Mật khẩu", { exact: true }).fill(password!);
   await page.getByRole("button", { name: "Đăng nhập", exact: false }).click();
+  await page.getByRole("link", { name: "Tài khoản", exact: true }).click();
 }
 for (const [role, port, username] of [
   ["Quản lý rạp", 3001, "manager01"],
@@ -76,7 +77,7 @@ for (const [source, target, username] of [
     await expect(
       page.getByRole("heading", { name: `Xin chào, ${username}.` }),
     ).toBeVisible();
-    await expect(page).toHaveURL(`http://localhost:${target}/`);
+    await expect(page).toHaveURL(`http://localhost:${target}/account`);
     expect(
       navigationUrls.every(
         (url) =>

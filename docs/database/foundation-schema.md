@@ -10,8 +10,9 @@ The source G3 schema is preserved in V1 with two deliberate adaptations: no dest
 | Movies | description, genre, country, language, director, poster, trailer; positive duration |
 | Auditoriums | is_active; positive total_seats |
 | Seats | positive seat number, prevent self-pair/duplicate pair target; service must still validate same room, adjacency, symmetry, SWEETBOX types |
-| Showtime | auditorium/start/end index; positive time range and nonnegative base_price; concurrency-safe conflict check belongs to Showtime service |
-| F&B inventory | inventory_transactions with signed quantity, before/after, manager, note, type, server timestamp; restock history indexes |
+| Showtime | auditorium/start/end index; positive time range and nonnegative base_price; V9 snapshots movie title/rating/duration and auditorium name/type |
+| F&B inventory | inventory_transactions with signed quantity, before/after, manager, note, type, server timestamp; restock history indexes; V11 case-insensitive item-name uniqueness |
+| Audit events | V10 append-only `audit_events`, actor/action/outcome/subject/details and timestamp; Manager-only paged read |
 | Age | bookings.age_confirmed_at for online declaration; age_verifications for POS Booking / Gate Ticket, staff and timestamp |
 | Tickets | Existing VALID/USED/CANCELLED enum and unique active-ticket index retained; final USED workflow to be implemented in Ticket module |
 | Payment | GATEWAY_ONLINE enum retained; booking channel and payment paid_at already present, no duplicate fields |

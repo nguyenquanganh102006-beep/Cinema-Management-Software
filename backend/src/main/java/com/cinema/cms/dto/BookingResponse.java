@@ -11,7 +11,10 @@ public record BookingResponse(
         List<TicketLine> tickets,
         List<ConcessionLine> concessions,
         BigDecimal totalAmount,
-        Instant holdUntil) {
+        Instant holdUntil,
+        Long showtimeId,
+        Instant serverTime,
+        String channel) {
 
     public record TicketLine(Long seatId, BigDecimal price) {}
 

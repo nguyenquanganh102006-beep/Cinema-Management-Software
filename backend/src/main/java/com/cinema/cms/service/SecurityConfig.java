@@ -36,6 +36,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> {
                     auth.requestMatchers(HttpMethod.POST,"/api/v1/auth/login","/api/v1/auth/register","/api/v1/auth/transfers/consume").permitAll();
                     auth.requestMatchers(HttpMethod.GET,
+                            "/posters/**",
+                            "/concessions/**",
                             "/api/v1/payments/vnpay/return",
                             "/api/v1/payments/vnpay/ipn").permitAll();
                     if (docsEnabled) auth.requestMatchers("/swagger-ui/**","/swagger-ui.html","/v3/api-docs/**").permitAll();

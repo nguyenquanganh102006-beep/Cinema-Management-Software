@@ -4,8 +4,8 @@
 
 | Phương thức | Đường dẫn | Quyền | Mô tả |
 |---|---|---|---|
-| GET | `/movies?keyword=&active=&page=0&size=20` | Mọi tài khoản đã đăng nhập | Danh sách. Chỉ Manager thấy phim ngừng chiếu và dùng được `active`. `size` tối đa 100. Sắp xếp theo tên rồi id |
-| GET | `/movies/{id}` | Mọi tài khoản đã đăng nhập | Chi tiết. Phim ngừng chiếu trả 404 cho người không phải Manager |
+| GET | `/movies?keyword=&active=&page=0&size=20` | Mọi tài khoản đã đăng nhập | Danh sách công khai, gồm phim đã ngừng chiếu; có thể lọc theo `active`. `size` tối đa 100. Sắp xếp theo tên rồi id |
+| GET | `/movies/{id}` | Mọi tài khoản đã đăng nhập | Chi tiết phim, kể cả phim đã ngừng chiếu |
 | POST | `/movies` | MANAGER | Tạo phim, mặc định đang hoạt động. Trả 201 |
 | PATCH | `/movies/{id}` | MANAGER | Thay toàn bộ các trường chỉnh sửa được. Trường tùy chọn để trống sẽ bị xóa. Không đổi trạng thái |
 | PATCH | `/movies/{id}/status` | MANAGER | Body `{"active": true|false}` |
@@ -39,4 +39,4 @@ Danh sách: `{"data": {"items": [...], "page", "size", "totalElements", "totalPa
 |---|---|---|
 | `VALIDATION_ERROR` | 400 | Thiếu hoặc sai trường, có trường lạ, `page` hoặc `size` sai |
 | `ACCESS_DENIED` | 403 | Không phải Manager khi ghi |
-| `MOVIE_NOT_FOUND` | 404 | Không có phim hoặc phim ngừng chiếu với người không phải Manager |
+| `MOVIE_NOT_FOUND` | 404 | Không có phim |

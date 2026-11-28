@@ -1,0 +1,44 @@
+@media print {
+  .sidebar,
+  header,
+  .no-print,
+  .skip-link,
+  .workspace-main a,
+  button {
+    display: none !important;
+  }
+  .workspace,
+  .workspace-main {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+  .ticket {
+    break-inside: avoid;
+    border: 1px solid #222;
+    margin: 1cm 0;
+    padding: 1cm;
+  }
+  .receipt img {
+    width: 40mm;
+    height: 40mm;
+  }
+  body.printing-refund * {
+    visibility: hidden !important;
+  }
+  body.printing-refund .refund-receipt,
+  body.printing-refund .refund-receipt * {
+    visibility: visible !important;
+  }
+  body.printing-refund .refund-receipt {
+    position: absolute;
+    inset: 0 auto auto 0;
+    display: block !important;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+  }
+}

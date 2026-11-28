@@ -1,5 +1,5 @@
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${SERVER_PORT:8081}
   error:
     include-message: never
     include-stacktrace: never
@@ -38,6 +38,7 @@ app:
   cors-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3001,http://localhost:3002,http://localhost:3003}
   payments:
     vietqr:
+      bank-bin: ${CINEMA_BANK_BIN:}
       bank-account: ${CINEMA_BANK_ACCOUNT:}
       bank-name: ${CINEMA_BANK_NAME:}
     vnpay:
@@ -46,6 +47,7 @@ app:
       pay-url: ${VNPAY_PAY_URL:}
       return-url: ${VNPAY_RETURN_URL:}
       ipn-url: ${VNPAY_IPN_URL:}
+    demo-enabled: ${PAYMENT_DEMO_ENABLED:false}
 springdoc:
   api-docs:
     enabled: false

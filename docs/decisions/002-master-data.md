@@ -6,7 +6,7 @@ In scope: Staff, Movies, Auditoriums and Seats, Sweetbox pairs, Pricing rules, F
 
 Out of scope, belongs to later sprints: showtimes, seat holds, POS checkout, payment, ticketing, refunds, reports, the price quote endpoint (`POST /pricing/quote` needs a showtime).
 
-The schema already contains the master data tables and constraints (extra movie fields, `auditoriums.is_active`, seat-pair constraints, pricing constraints, `inventory_transactions`). No table is recreated. The only new migration is V5 (see Database).
+The schema already contains the master data tables and constraints (extra movie fields, `auditoriums.is_active`, seat-pair constraints, pricing constraints, `inventory_transactions`). No table is recreated. V5 is the migration from the original Master Data sprint; follow-up hardening is recorded in the database section below.
 
 ## Cross-cutting decisions
 
@@ -33,7 +33,7 @@ The schema already contains the master data tables and constraints (extra movie 
 
 **Entity ids follow the SQL type.** Hibernate only validates, so the Java type must match the column: `auditorium_id`, `rule_id` and `item_id` are `SERIAL` and map to `Integer`; `seat_id`, `movement_id` and `user_id` are `BIGSERIAL` and map to `Long`.
 
-**Query parameters.** Where a parameter would otherwise be type-converted by Spring (booleans, ids, instants in new list endpoints), the service reads it as a string and returns 400 on a bad format. `GlobalExceptionHandler` does not handle `MethodArgumentTypeMismatchException`, so an unparsable typed parameter or path variable currently becomes 500. **[OPEN]** Add a handler returning 400 `VALIDATION_ERROR` in a separate small change, because the file is shared.
+**Query parameters.** Where a parameter would otherwise be type-converted by Spring (booleans, ids, instants in new list endpoints), the service reads it as a string and returns 400 on a bad format. `GlobalExceptionHandler` also maps `MethodArgumentTypeMismatchException` to 400 `VALIDATION_ERROR`.
 
 ## Staff
 
@@ -41,51 +41,50 @@ The schema already contains the master data tables and constraints (extra movie 
 - Create takes username, full name, email, phone and an initial password. The role is fixed to `STAFF` in the service and is not in the request; `role`, `status` and other internal fields are rejected as unknown. Username and email are lowercased, the password uses the Foundation BCrypt rules (8 characters, at most 72 UTF-8 bytes) and is never returned.
 - Update changes full name, email and phone only. Username is immutable.
 - Deactivation sets `INACTIVE` and increments `security_version`, so existing tokens stop working immediately and do not come back on reactivation.
-- **[OPEN]** What `active=true` does to a `LOCKED` account (currently sets `ACTIVE`).
-- **[OPEN]** Password reset is not implemented (the backend plan lists `POST /staff/{id}/reset-password`, the sprint brief does not). A reset must also increment `security_version`.
-- **[OPEN]** Where the Manager's override PIN is created and changed. `users.manager_pin_hash` exists but no API sets it for new managers.
+- `PATCH /staff/{id}/status` with `active=true` explicitly changes either `INACTIVE` or `LOCKED` to `ACTIVE`; setting false changes the account to `INACTIVE` and invalidates sessions.
+- `POST /staff/{id}/reset-password` is implemented; it hashes the new password and increments `security_version`.
+- The Manager override PIN is seeded for the configured demo Manager through `DEMO_MANAGER_PIN`; there is no Manager PIN rotation endpoint, so deployed Manager onboarding/rotation still needs an operational procedure.
 
 ## Movies
 
-- Required: title (200), duration in minutes (> 0), age rating (`P`, `T13`, `T16`, `T18`) and **release date**, because `release_date` is `NOT NULL` even though the brief does not list it. **[OPEN]**
+- Required: title (200), duration in minutes (> 0), age rating (`P`, `T13`, `T16`, `T18`) and release date, because `release_date` is `NOT NULL` even though the brief does not list it.
 - Optional: description (limited to 5000 characters, our limit, the column is unbounded), genre, country, language, director, poster, trailer. Poster and trailer must be `http` or `https` URLs.
 - Status is changed only through the status endpoint. Duplicate titles are allowed because the schema has no constraint.
-- **[OPEN]** Deactivating a movie that has upcoming showtimes. Left as a `TODO` for the showtime sprint.
+- Deactivating a movie is allowed even if future showtimes exist. Staff/Customer schedule reads omit those showtimes, and quote, seat map, hold and new Booking requests reject them with `SHOWTIME_UNAVAILABLE`. Manager can still inspect the retained schedule; previously created Booking/payment history remains readable.
 - **[OPEN]** Whether the movie list needs a release date or "coming soon" notion for the customer portal.
 
 ## Auditoriums and seats
 
-- **Capacity.** `total_seats` is a declared capacity (`> 0`, required by the schema, so an auditorium cannot be created empty). The number of seats may never exceed it, and capacity cannot be lowered below the current seat count. **[OPEN]** The alternative is a computed capacity.
+- **Capacity.** `total_seats` is a declared capacity (`> 0`, required by the schema, so an auditorium cannot be created empty). The number of seats may never exceed it, and capacity cannot be lowered below the current seat count.
 - **Type mapping.** `auditorium_type_enum` has the value `3D`, which cannot be a Java constant. The Java enum `AuditoriumType` uses `THREE_D`, while API and database use the exact string value (`STANDARD_2D`, `3D`, `IMAX`). The entity stores the string and uses `@ColumnTransformer(write = "cast(? as auditorium_type_enum)")` with an explicit `columnDefinition`. `@JdbcTypeCode(NAMED_ENUM)` on a `String` field fails Hibernate startup with a `NullPointerException`, so it must not be used here.
 - **Names.** Auditorium names are unique ignoring case. V1's plain `UNIQUE` is case-sensitive, so V5 adds a unique index on `lower(name)`; the service compares with `lower()` to match it.
-- **Seats.** Row is 1–5 letters, upper-cased; number is positive; each `(auditorium, row, number)` is unique. Seats are added in batches of 1–500, all or none. Seats have no status column in the schema, so a seat cannot be disabled. **[OPEN]** Add `seats.is_active` (new migration) or drop the idea.
+- **Seats.** Row is 1–5 letters, upper-cased; number is positive; each `(auditorium, row, number)` is unique. Seats are added in batches of 1–500, all or none. Seats have no status column in the schema, so a seat cannot be disabled; no `seats.is_active` field is planned.
 - A paired seat cannot change position or type until unpaired (`SEAT_IS_PAIRED`).
 - No delete for auditoriums or seats. `showtime_seats` references `seats` without cascade, so deleting used seats would fail later anyway.
-- **[OPEN]** Auditorium deactivation when showtimes exist. `TODO` for the showtime sprint.
+- Auditorium deactivation is allowed with existing showtimes. Staff/Customer schedule reads omit them and new quote/seat-map/hold/Booking requests fail with `SHOWTIME_UNAVAILABLE`; Manager history and existing bookings are retained.
 
 ## Sweetbox pairs
 
-- `POST /seats/sweetbox-pairs` with `seatId` and `pairSeatId`. Both seats must exist, be different, belong to the **same auditorium**, and both have type `SWEETBOX`. **[OPEN]** Whether to require `SWEETBOX` type.
+- `POST /seats/sweetbox-pairs` with `seatId` and `pairSeatId`. Both seats must exist, be different, belong to the **same auditorium**, be adjacent on the same row, and both have type `SWEETBOX`.
 - A seat can belong to one pair only. A seat that already points to another seat, or is pointed to by another seat, is rejected with 409. Both pointers are written in one transaction, so the pair is always symmetric. The unique index on `pair_seat_id` is the backstop.
 - `DELETE /seats/sweetbox-pairs/{seatId}` clears the pair from either seat, and also repairs a one-way pointer found in old data. A seat with no pair answers 404 `SWEETBOX_PAIR_NOT_FOUND`.
-- **[OPEN]** Same row and adjacent seat numbers are **not** enforced. Foundation left adjacency to later modules; the check belongs in `SweetboxService.pair` if the team wants it now.
-- **[OPEN]** One ticket or two for a pair, and whether a hold counts as one or two seats. This affects ticketing, hold and refund sprints, so decide early.
+- A hold reserves both physical seats in a Sweetbox pair and checkout issues one Ticket per physical seat. Seat-layout edits are blocked after a room has any showtime, preserving the inventory mapping.
 
 ## Pricing
 
 - Rule values are the approved seed from V3 and are not changed by the code: base price 70,000 VND; room surcharge 2D 0, 3D 20,000, IMAX 40,000; seat surcharge STANDARD 0, VIP 15,000, SWEETBOX 15,000; time surcharge 10,000 applied **once** when the showtime is Friday to Sunday **or** starts after 18:00.
 - Seat price = base + room surcharge + seat surcharge + time surcharge. The application of the formula belongs to the quote, not to this sprint.
-- **[OPEN]** Confirm before coding any further: Sweetbox +15,000 is per physical seat of the pair; "weekend" starts on Friday (V3 comment) and not Saturday; "after 18:00" excludes exactly 18:00.
+- The quote applies Sweetbox surcharge per physical seat. The time surcharge applies once when a showtime starts Friday–Sunday or strictly after 18:00; exactly 18:00 does not qualify by time alone.
 - Valid `(rule_type, target_ref)` pairs are exactly the eight seeded ones (`PricingRuleCatalog`). `PATCH` changes only `amount` and `description`; code, type and target are identity used by the price engine.
 - Amount is non-negative with at most 8 integer and 2 decimal digits (`NUMERIC(10,2)`); zero is allowed, including for the base price. **[OPEN]** Whether the base price must be positive, and whether VND should be restricted to whole numbers.
-- `POST` is implemented but almost unusable: every valid pair already exists and rules cannot be deleted, so it answers 409. **[OPEN]** Remove it unless new room or seat types are planned.
-- Changing a price affects only showtimes and bookings created afterwards, assuming they store the price at creation. Verify in the showtime sprint.
-- **[OPEN]** Audit trail of who changed a price and when (not implemented).
+- `POST` can restore a missing rule from the fixed catalog; an already-present `(type, targetRef)` answers 409. Rule types/targets remain limited to the eight seeded pairs.
+- `BASE_PRICE` is copied to `showtimes.base_price` at schedule creation. Room/seat/time surcharges are read from the current pricing-rule table for a quote and rechecked at checkout; if a pending Booking's total no longer matches, checkout returns 409 `PRICE_CHANGED` without changing the quoted amount.
+- Successful pricing-rule create/update operations are persisted in `audit_events` with actor, old/new amount and timestamp; Manager can read the feed at `GET /api/v1/audit-events`.
 
 ## F&B catalog
 
 - Items are simple (`is_combo = false`) or combos. Creating a simple item also creates its inventory row (stock 0, threshold 10, the schema default) in the same transaction. Combos have no inventory row.
-- Names are unique ignoring case at service level. The database constraint is case-sensitive, so two concurrent requests differing only by case can both pass. **[OPEN]** Add a `lower(name)` unique index like V5 in a later migration.
+- Names are unique ignoring case at service and database levels. V11 adds `uq_concession_items_name_ci`; the migration fails visibly if legacy rows already differ only by case.
 - Combo components must be existing simple items that are **active**, unique within the combo, with positive quantity; a combo cannot contain a combo. Updating a combo replaces the whole component list.
 - Deactivating an item that belongs to an active combo is rejected (`CONCESSION_ITEM_IN_ACTIVE_COMBO`); deactivate the combo first. Activating a combo requires every component to be active. **[OPEN]** Block, as now, or deactivate affected combos automatically.
 - Item and combo edits use separate endpoints; an id of the wrong kind answers 404.
@@ -102,7 +101,7 @@ The schema already contains the master data tables and constraints (extra movie 
 
 ## Database
 
-- **V5** `V5__auditorium_name_case_insensitive_unique.sql` adds `uq_auditoriums_name_ci` on `auditoriums(lower(name))`. It fails if existing rows already differ only by case. Migrations V1–V4 are untouched.
+- **V5** `V5__auditorium_name_case_insensitive_unique.sql` adds `uq_auditoriums_name_ci` on `auditoriums(lower(name))`. It fails if existing rows already differ only by case. **V9** snapshots movie title/rating/duration and auditorium name/type on each showtime. **V10** adds persistent `audit_events`. **V11** adds `uq_concession_items_name_ci` on `concession_items(lower(name))`; it must fail visibly if existing item names collide ignoring case. Migrations V1–V8 are untouched.
 - `FoundationIntegrationTest` counts successful Flyway migrations (now 5). Every later migration must update it, which makes it a merge conflict hotspot; consider asserting that all migrations succeeded instead of counting them.
 - If a second pull request needs a migration at the same time, agree the version number first, because Flyway rejects two files with the same version.
 

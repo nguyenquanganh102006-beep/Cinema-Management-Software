@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 @TestPropertySource(
         properties = {
+            "app.payments.vietqr.bank-bin=970415",
             "app.payments.vietqr.bank-account=0123456789",
             "app.payments.vietqr.bank-name=Test Bank",
             "spring.datasource.hikari.maximum-pool-size=5",
@@ -34,6 +35,36 @@ class TicketPosHistoryIntegrationTest extends SeatHoldTestSupport {
     @Autowired PosPaymentService posPayments;
     @Autowired CheckoutService checkoutService;
     @Autowired TicketService ticketService;
+
+    @Test
+    void staffLookupSupportsBothChannelsAndRejectsWrongGateBeforeUsingTicket() throws Exception {
+        BookingResponse online = book(show, List.of(a1, a2), customer, null);
+        mvc.perform(get("/api/v1/tickets/lookup").param("code", online.bookingCode()).header("Authorization", "Bearer " + staffJwt))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
+        mvc.perform(get("/api/v1/tickets/lookup").param("code", "missing-booking-code").header("Authorization", "Bearer " + staffJwt))
+            .andExpect(status().isNotFound());
+        checkoutService.finalizePaid(online.bookingId(), PaymentMethod.GATEWAY_ONLINE, online.totalAmount());
+        String code = ticketCode(online.bookingId());
+        for (String lookup : List.of(code, online.bookingCode()))
+            mvc.perform(get("/api/v1/tickets/lookup").param("code", lookup).header("Authorization", "Bearer " + staffJwt))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].status").value("VALID"));
+        mvc.perform(get("/api/v1/tickets/lookup").param("code", online.bookingCode()).header("Authorization", "Bearer " + customerJwt)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/tickets/lookup").param("code", online.bookingCode()).header("Authorization", "Bearer " + staffJwt))
+            .andExpect(jsonPath("$.data.length()").value(2));
+        // Both gates are open: show starts at +1h, secondShow at +4h.
+        clock.set(clock.instant().plusSeconds(3 * 3600 + 10 * 60));
+        String gateJwt = jwt.issue(users.findById(staff.userId()).orElseThrow());
+        mvc.perform(post("/api/v1/tickets/validate").header("Authorization", "Bearer " + gateJwt).contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsString(Map.of("ticketCode", code, "showtimeId", secondShow, "ageDocumentChecked", true))))
+            .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("TICKET_WRONG_SHOWTIME"));
+        mvc.perform(get("/api/v1/tickets/{code}", code).header("Authorization", "Bearer " + gateJwt))
+            .andExpect(jsonPath("$.data.status").value("VALID"));
+        mvc.perform(post("/api/v1/tickets/validate").header("Authorization", "Bearer " + gateJwt).contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsString(Map.of("ticketCode", code, "showtimeId", show, "ageDocumentChecked", true))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("USED"));
+        mvc.perform(get("/api/v1/tickets/lookup").param("code", code).header("Authorization", "Bearer " + gateJwt))
+            .andExpect(jsonPath("$.data[0].status").value("USED"));
+    }
 
     @Test
     void customerCanReadOnlyTheirOwnTicketAndBookingTickets() throws Exception {
@@ -184,7 +215,7 @@ class TicketPosHistoryIntegrationTest extends SeatHoldTestSupport {
     void posHistoryExcludesOnlineBookingsAndSupportsFilters() throws Exception {
         // The Spring context and database are shared by the whole suite. Move this test to its own
         // day and room so assertions are not affected by POS bookings created by other tests.
-        clock.set(Instant.parse("2040-06-06T10:00:00Z"));
+        clock.set(Instant.parse("2046-06-06T10:00:00Z"));
         // Reissue JWTs after moving the test clock: the fixture tokens were signed at 2030 and
         // would otherwise be rejected as expired.
         staffJwt = jwt.issue(users.findById(staff.userId()).orElseThrow());
@@ -214,7 +245,7 @@ class TicketPosHistoryIntegrationTest extends SeatHoldTestSupport {
                 mapper.readTree(
                                 mvc.perform(
                                                 get("/api/v1/pos/bookings")
-                                                        .param("date", "2040-06-06")
+                                                        .param("date", "2046-06-06")
                                                         .header(
                                                                 "Authorization",
                                                                 "Bearer " + staffJwt))
@@ -275,7 +306,7 @@ class TicketPosHistoryIntegrationTest extends SeatHoldTestSupport {
 
         mvc.perform(
                         get("/api/v1/pos/bookings")
-                                .param("date", "2040-06-06")
+                                .param("date", "2046-06-06")
                                 .header("Authorization", "Bearer " + staffJwt))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items.length()").value(2));
@@ -460,6 +491,7 @@ class TicketPosHistoryIntegrationTest extends SeatHoldTestSupport {
     private ResultActions validate(String ticketCode, Boolean ageChecked) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("ticketCode", ticketCode);
+        body.put("showtimeId", ticketService.getByCode(ticketCode, staff).showtimeId());
         if (ageChecked != null) body.put("ageDocumentChecked", ageChecked);
         return mvc.perform(
                 post("/api/v1/tickets/validate")
@@ -527,13 +559,17 @@ class TicketPosHistoryIntegrationTest extends SeatHoldTestSupport {
     private Long showtime(Long movieId, Integer roomId, int seconds) {
         Long id =
                 jdbc.queryForObject(
-                        "insert into showtimes(movie_id,auditorium_id,start_time,end_time,base_price)"
-                                + " values (?,?,?,?,70000) returning showtime_id",
+                        "insert into showtimes(movie_id,auditorium_id,start_time,end_time,base_price,"
+                                + "movie_title_snapshot,age_rating_snapshot,duration_minutes_snapshot,"
+                                + "auditorium_name_snapshot,auditorium_type_snapshot) "
+                                + "select m.movie_id,a.auditorium_id,?,?,70000,m.title,m.age_rating,"
+                                + "m.duration_minutes,a.name,a.auditorium_type::text "
+                                + "from movies m cross join auditoriums a where m.movie_id=? and a.auditorium_id=? returning showtime_id",
                         Long.class,
-                        movieId,
-                        roomId,
                         Timestamp.from(clock.instant().plusSeconds(seconds)),
-                        Timestamp.from(clock.instant().plusSeconds(seconds + 8100)));
+                        Timestamp.from(clock.instant().plusSeconds(seconds + 8100)),
+                        movieId,
+                        roomId);
         jdbc.update(
                 "insert into showtime_seats(showtime_id,seat_id) select ?,seat_id from seats"
                         + " where auditorium_id=?",
@@ -575,7 +611,7 @@ class TicketPosHistoryIntegrationTest extends SeatHoldTestSupport {
                                         throw new IllegalStateException("Scan start timed out");
                                     try {
                                         return ticketService.validate(
-                                                new TicketValidationRequest(ticketCode, null),
+                                                new TicketValidationRequest(ticketCode, ticketService.getByCode(ticketCode, staff).showtimeId(), null),
                                                 staff);
                                     } catch (ApiException e) {
                                         return e;

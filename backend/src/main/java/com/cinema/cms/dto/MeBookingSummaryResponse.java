@@ -12,4 +12,6 @@ public record MeBookingSummaryResponse(
         BigDecimal totalAmount,
         Instant createdAt,
         Instant paidAt,
-        Long showtimeId) {}
+        Long showtimeId,
+        String movieTitle,
+        Instant showtimeStartsAt) {}

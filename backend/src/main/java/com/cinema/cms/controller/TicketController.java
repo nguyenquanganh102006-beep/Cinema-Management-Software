@@ -55,6 +55,14 @@ public class TicketController {
         this.tickets = tickets;
     }
 
+    @GetMapping("/lookup")
+    @PreAuthorize("hasRole('STAFF')")
+    @Operation(summary = "Lookup tickets by Ticket Code or Booking Code for POS and ONLINE")
+    public ApiResponse<java.util.List<TicketResponse>> lookup(@RequestParam String code,
+            @AuthenticationPrincipal SessionPrincipal principal) {
+        return new ApiResponse<>(tickets.lookup(code, principal));
+    }
+
     @GetMapping("/{ticketCode}")
     @Operation(
             summary = "Read a ticket by code; CUSTOMER must own the booking",

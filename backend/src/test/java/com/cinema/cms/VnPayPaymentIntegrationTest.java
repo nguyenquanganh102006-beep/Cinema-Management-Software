@@ -43,6 +43,7 @@ class VnPayPaymentIntegrationTest extends SeatHoldTestSupport {
     private static final String HASH_SECRET = "test-vnpay-hash-secret-at-least-32-bytes";
 
     @Autowired BookingService bookingService;
+    @Autowired CheckoutService checkout;
     @Autowired VnPayService vnPayService;
     @Autowired PaymentRepository payments;
 
@@ -227,7 +228,64 @@ class VnPayPaymentIntegrationTest extends SeatHoldTestSupport {
     }
 
     @Test
-    void successfulIpnAfterHoldExpiryParksBookingForManualDecision() throws Exception {
+    void successfulResponseCodeWithFailedTransactionStatusDoesNotIssueTickets() throws Exception {
+        BookingResponse booking = book(show, customer, null);
+        createVnPay(booking, customerJwt);
+        Map<String, String> params = ipnParams(booking, "00", "02", transactionNo());
+
+        ipn(params).andExpect(status().isOk()).andExpect(jsonPath("$.RspCode").value("00"));
+
+        assertThat(bookingStatus(booking.bookingId())).isEqualTo("PENDING");
+        assertThat(paymentRow(booking.bookingId()).get("status")).isEqualTo("FAILED");
+        assertThat(ticketCount(booking.bookingId())).isZero();
+    }
+
+    @Test
+    void incompleteTransactionRemainsPendingForGatewayRetry() throws Exception {
+        BookingResponse booking = book(show, customer, null);
+        createVnPay(booking, customerJwt);
+        Map<String, String> params = ipnParams(booking, "24", "01", transactionNo());
+
+        ipn(params).andExpect(status().isOk()).andExpect(jsonPath("$.RspCode").value("99"));
+
+        assertThat(bookingStatus(booking.bookingId())).isEqualTo("PENDING");
+        assertThat(paymentRow(booking.bookingId()).get("status")).isEqualTo("PENDING");
+        assertThat(ticketCount(booking.bookingId())).isZero();
+    }
+
+    @Test
+    void suspectedDebitIsParkedForManualDecisionWithoutIssuingTickets() throws Exception {
+        BookingResponse booking = book(show, customer, null);
+        createVnPay(booking, customerJwt);
+        String transactionNo = transactionNo();
+        Map<String, String> params = ipnParams(booking, "07", "07", transactionNo);
+
+        ipn(params).andExpect(status().isOk()).andExpect(jsonPath("$.RspCode").value("00"));
+
+        assertThat(bookingStatus(booking.bookingId())).isEqualTo("EXCEPTION_PENDING_DECISION");
+        assertThat(paymentRow(booking.bookingId()).get("status")).isEqualTo("PAID");
+        assertThat(paymentRow(booking.bookingId()).get("gateway_transaction_code"))
+                .isEqualTo(transactionNo);
+        assertThat(ticketCount(booking.bookingId())).isZero();
+    }
+
+    @Test
+    void missingTransactionStatusIsNotTreatedAsSuccess() throws Exception {
+        BookingResponse booking = book(show, customer, null);
+        createVnPay(booking, customerJwt);
+        Map<String, String> params = successfulIpn(booking);
+        params.remove("vnp_TransactionStatus");
+        params.put("vnp_SecureHash", sign(params));
+
+        ipn(params).andExpect(status().isOk()).andExpect(jsonPath("$.RspCode").value("99"));
+
+        assertThat(bookingStatus(booking.bookingId())).isEqualTo("PENDING");
+        assertThat(paymentRow(booking.bookingId()).get("status")).isEqualTo("PENDING");
+        assertThat(ticketCount(booking.bookingId())).isZero();
+    }
+
+    @Test
+    void successfulIpnAfterHoldExpiryCompletesWhenSeatsAreStillAvailable() throws Exception {
         BookingResponse booking = book(show, customer, null);
         createVnPay(booking, customerJwt);
         Map<String, String> params = successfulIpn(booking);
@@ -235,13 +293,33 @@ class VnPayPaymentIntegrationTest extends SeatHoldTestSupport {
         clock.advance(301);
         ipn(params).andExpect(status().isOk()).andExpect(jsonPath("$.RspCode").value("00"));
 
-        assertThat(bookingStatus(booking.bookingId()))
-                .isEqualTo("EXCEPTION_PENDING_DECISION");
+        assertThat(bookingStatus(booking.bookingId())).isEqualTo("PAID");
         assertThat(paymentRow(booking.bookingId()).get("status")).isEqualTo("PAID");
         assertThat(paymentRow(booking.bookingId()).get("gateway_transaction_code"))
                 .isEqualTo(params.get("vnp_TransactionNo"));
+        assertThat(ticketCount(booking.bookingId())).isEqualTo(1);
+        assertThat(seatStatus(show, a1)).isEqualTo("BOOKED");
+    }
+
+    @Test
+    void successfulIpnAfterHoldExpiryNeedsManualHandlingWhenSeatWasSold() throws Exception {
+        BookingResponse booking = book(show, customer, null);
+        createVnPay(booking, customerJwt);
+        Map<String, String> params = successfulIpn(booking);
+
+        clock.advance(301);
+        var replacementHold = holds.hold(show, new HoldSeatsRequest(List.of(a1)), staff);
+        BookingResponse replacement = bookingService.create(
+                new CreateBookingRequest(show, replacementHold.holdToken(), null, null), staff);
+        checkout.finalizePaid(replacement.bookingId(), PaymentMethod.CASH, replacement.totalAmount());
+
+        ipn(params).andExpect(status().isOk()).andExpect(jsonPath("$.RspCode").value("00"));
+
+        assertThat(bookingStatus(booking.bookingId())).isEqualTo("EXCEPTION_PENDING_DECISION");
+        assertThat(paymentRow(booking.bookingId()).get("status")).isEqualTo("PAID");
         assertThat(ticketCount(booking.bookingId())).isZero();
-        assertThat(seatStatus(show, a1)).isEqualTo("HOLDING");
+        assertThat(ticketCount(replacement.bookingId())).isEqualTo(1);
+        assertThat(seatStatus(show, a1)).isEqualTo("BOOKED");
     }
 
     @Test
@@ -507,13 +585,17 @@ class VnPayPaymentIntegrationTest extends SeatHoldTestSupport {
     private Long showtime(Long movieId, Integer roomId, int seconds) {
         Long id =
                 jdbc.queryForObject(
-                        "insert into showtimes(movie_id,auditorium_id,start_time,end_time,base_price)"
-                                + " values (?,?,?,?,70000) returning showtime_id",
+                        "insert into showtimes(movie_id,auditorium_id,start_time,end_time,base_price,"
+                                + "movie_title_snapshot,age_rating_snapshot,duration_minutes_snapshot,"
+                                + "auditorium_name_snapshot,auditorium_type_snapshot) "
+                                + "select m.movie_id,a.auditorium_id,?,?,70000,m.title,m.age_rating,"
+                                + "m.duration_minutes,a.name,a.auditorium_type::text "
+                                + "from movies m cross join auditoriums a where m.movie_id=? and a.auditorium_id=? returning showtime_id",
                         Long.class,
-                        movieId,
-                        roomId,
                         Timestamp.from(clock.instant().plusSeconds(seconds)),
-                        Timestamp.from(clock.instant().plusSeconds(seconds + 8100)));
+                        Timestamp.from(clock.instant().plusSeconds(seconds + 8100)),
+                        movieId,
+                        roomId);
         jdbc.update(
                 "insert into showtime_seats(showtime_id,seat_id) select ?,seat_id from seats"
                         + " where auditorium_id=?",

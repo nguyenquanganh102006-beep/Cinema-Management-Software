@@ -133,4 +133,29 @@ class CheckoutSeatIntegrationTest extends SeatHoldTestSupport {
         .isEqualTo("SEAT_HOLD_EXPIRED");
     assertThat(seatStatus(a1)).isEqualTo("HOLDING");
   }
+
+  @Test
+  void lateOnlinePaymentCanRecoverAnExpiredSeatThatNoOneElseHasTaken() {
+    var held = holds.hold(show, new HoldSeatsRequest(List.of(a1)), customer);
+    clock.advance(301);
+    new TransactionTemplate(tx)
+        .executeWithoutResult(s -> checkout.markBookedAfterExpiredHold(show, held.seatIds()));
+    assertThat(seatStatus(a1)).isEqualTo("BOOKED");
+  }
+
+  @Test
+  void lateOnlinePaymentCannotTakeAnExpiredSeatHeldByAnotherSession() {
+    var original = holds.hold(show, new HoldSeatsRequest(List.of(a1)), customer);
+    clock.advance(301);
+    var replacement = holds.hold(show, new HoldSeatsRequest(List.of(a1)), otherSession);
+    assertThatThrownBy(
+            () -> new TransactionTemplate(tx)
+                .executeWithoutResult(s -> checkout.markBookedAfterExpiredHold(show, original.seatIds())))
+        .isInstanceOfSatisfying(ApiException.class,
+            e -> assertThat(e.getCode()).isEqualTo("SEAT_NOT_AVAILABLE"));
+    assertThat(seatStatus(a1)).isEqualTo("HOLDING");
+    assertThat(jdbc.queryForObject(
+        "select hold_token from showtime_seats where showtime_id=? and seat_id=?",
+        String.class, show, a1)).isEqualTo(replacement.holdToken());
+  }
 }

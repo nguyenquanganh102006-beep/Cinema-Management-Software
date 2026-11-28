@@ -1,5 +1,7 @@
 # F&B catalog và Inventory API
 
+Phản hồi danh mục có thể kèm trường imageUrl với đường dẫn ảnh minh họa được lưu cùng backend. Customer xếp combo trước món lẻ; availableQuantity vẫn được tính từ tồn kho thành phần trong DB.
+
 Đường dẫn gốc `/api/v1`. Món lẻ có tồn kho riêng. Combo gồm nhiều món lẻ và **không có tồn kho riêng**.
 
 ## Danh mục món và combo (`/concessions`)
@@ -21,6 +23,7 @@ POST /api/v1/concessions/combos  { "name": "Combo đôi", "price": 120000,
 ```
 
 Quy tắc:
+- Response list/get/create/update/status đều có `availableQuantity` và `lowStock`. Món active lấy tồn thực; combo lấy giá trị nhỏ nhất của `floor(tồn thành phần / số lượng cần)`. Món/combo inactive có availability 0; component inactive/thiếu làm combo không bán được. Đây là snapshot lúc đọc, không giữ hàng; checkout vẫn khóa và kiểm tra tồn khi commit.
 - Tên món và combo duy nhất, không phân biệt hoa thường. Giá không âm, tối đa 8 chữ số nguyên và 2 chữ số thập phân.
 - Thành phần combo: ít nhất 1 món, mỗi món một lần, phải là **món lẻ đang bán**, không lồng combo.
 - Ngừng bán món đang nằm trong **combo đang bán** bị chặn (409). Hãy ngừng combo trước. Bật lại combo cần mọi món thành phần đang bán.
@@ -33,7 +36,7 @@ Quy tắc:
 | GET | `/inventory?keyword=&status=&page=&size=` | MANAGER | Tồn kho các món lẻ. `status`: `IN_STOCK`, `LOW_STOCK`, `OUT_OF_STOCK` |
 | GET | `/inventory/alerts` | MANAGER, STAFF | Món đang bán có tồn kho **bằng hoặc thấp hơn** ngưỡng cảnh báo, ít hàng nhất trước |
 | POST | `/inventory/{itemId}/restocks` | MANAGER | Nhập hàng. Trả 201 |
-| GET | `/inventory/restocks?itemId=&managerId=&from=&to=&page=&size=` | MANAGER | Lịch sử nhập kho toàn hệ thống, mới nhất trước. `from`, `to` theo ISO-8601, ví dụ `2026-11-01T00:00:00Z` |
+| GET | `/inventory/restocks?itemId=&managerId=&from=&to=&page=&size=` | MANAGER | Lịch sử nhập kho toàn hệ thống, mới nhất trước. `from`, `to` theo ISO-8601; khi lọc theo ngày nghiệp vụ Việt Nam dùng offset `+07:00`, ví dụ `2026-11-01T00:00:00+07:00` |
 | GET | `/inventory/{itemId}/history` | MANAGER | Lịch sử biến động của một món |
 
 Tình trạng: `OUT_OF_STOCK` khi tồn bằng 0, `LOW_STOCK` khi tồn lớn hơn 0 và không vượt ngưỡng, còn lại là `IN_STOCK`.
@@ -61,3 +64,5 @@ POST /api/v1/inventory/5/restocks   { "quantity": 50, "note": "Lô A" }
 | `CONCESSION_NAME_EXISTS` | 409 | Trùng tên |
 | `CONCESSION_ITEM_IN_ACTIVE_COMBO` | 409 | Ngừng bán món đang nằm trong combo đang bán |
 | `CONCESSION_COMBO_COMPONENT_INACTIVE` | 409 | Bật combo khi có món thành phần ngừng bán |
+
+Cập nhật 23/11/2026: đồng nhất availability trong response ghi và đọc, bổ sung test mutation/active/quyền catalog trong `ConcessionIntegrationTest`.

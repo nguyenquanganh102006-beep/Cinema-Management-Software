@@ -29,7 +29,7 @@ Giá một ghế = **giá cơ bản + phụ thu phòng + phụ thu loại ghế 
 - `amount`: không âm, tối đa 8 chữ số nguyên và 2 chữ số thập phân (theo `NUMERIC(10,2)`).
 - Cặp (loại, đối tượng) hợp lệ chỉ gồm 8 cặp trong bảng trên. Giá trị lạ trả `PRICING_RULE_INVALID`.
 - Mỗi cặp (loại, đối tượng) chỉ có một quy tắc. Muốn đổi giá thì sửa quy tắc có sẵn.
-- Đổi giá chỉ ảnh hưởng suất chiếu và đơn tạo sau này, vì chúng lưu giá tại thời điểm tạo.
+- `BASE_PRICE` được chụp vào `showtimes.base_price` khi tạo suất. Phụ thu phòng/ghế/khung giờ đọc quy tắc hiện hành khi quote và được kiểm tra lại khi checkout. Nếu tổng Booking PENDING không còn khớp, checkout trả 409 `PRICE_CHANGED`; không tự sửa số tiền đã báo. Vé/Booking đã thanh toán giữ giá snapshot lịch sử.
 
 ## Ví dụ
 

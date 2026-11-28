@@ -25,53 +25,86 @@ public class ShowtimeService {
     private final ShowtimeTimeService time;
     private final Clock clock;
     private final SweetboxPairValidator pairs;
+    private final AuditEventService auditEvents;
 
     public ShowtimeService(ShowtimeRepository showtimes, ShowtimeSeatRepository inventory, MovieRepository movies,
-                           AuditoriumRepository auditoriums, SeatRepository seats, PricingRuleRepository pricing, ShowtimeTimeService time, Clock clock, SweetboxPairValidator pairs) {
+                           AuditoriumRepository auditoriums, SeatRepository seats, PricingRuleRepository pricing, ShowtimeTimeService time, Clock clock, SweetboxPairValidator pairs,
+                           AuditEventService auditEvents) {
         this.showtimes = showtimes; this.inventory = inventory; this.movies = movies;
         this.auditoriums = auditoriums; this.seats = seats; this.pricing = pricing; this.time = time; this.clock = clock; this.pairs = pairs;
+        this.auditEvents = auditEvents;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public ShowtimeResponse create(CreateShowtimeRequest r) {
+    public ShowtimeResponse create(CreateShowtimeRequest r) { return create(r, null); }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public ShowtimeResponse create(CreateShowtimeRequest r, Long actorUserId) {
         Instant start = time.startTime(r.startTime());
-        lockActiveRoom(r.auditoriumId());
-        Movie movie = activeMovie(r.movieId());
+        Movie movie = lockActiveMovie(r.movieId());
+        Auditorium room = lockActiveRoom(r.auditoriumId());
         List<Seat> physical = seats.findByAuditoriumIdOrderBySeatRowAscSeatNumberAsc(r.auditoriumId());
         validateSeats(physical);
         Instant end = time.endTime(start, movie.getDurationMinutes());
         checkConflict(r.auditoriumId(), start, end, null);
-        Showtime saved = showtimes.saveAndFlush(new Showtime(movie.getId(), r.auditoriumId(), start, end, basePrice()));
+        Showtime saved = showtimes.saveAndFlush(new Showtime(movie, room, start, end, basePrice()));
         Instant now = clock.instant();
         inventory.saveAllAndFlush(physical.stream().map(s -> new ShowtimeSeat(saved.getId(), s.getId(), now)).toList());
-        return ShowtimeResponse.from(saved);
+        auditEvents.record(actorUserId, "SHOWTIME_CREATED", "SUCCESS", "SHOWTIME", saved.getId(),
+                "movieId=" + movie.getId() + "; auditoriumId=" + r.auditoriumId()
+                        + "; startTime=" + start + "; endTime=" + end);
+        return response(saved);
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public ShowtimeResponse update(Long id, UpdateShowtimeRequest r) {
-        // Room is immutable. Lock order shared with CREATE and Master Data seat-layout writers.
+    public ShowtimeResponse update(Long id, UpdateShowtimeRequest r) { return update(id, r, null); }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public ShowtimeResponse update(Long id, UpdateShowtimeRequest r, Long actorUserId) {
+        // Lock Movie then Auditorium, matching sale writes so concurrent deactivation cannot
+        // leave a newly-created schedule pointing at a master row that became inactive mid-write.
         Integer room = showtimes.findAuditoriumId(id).orElseThrow(ShowtimeService::notFound);
-        lockActiveRoom(room);
+        Movie movie = lockActiveMovie(r.movieId());
+        Auditorium auditorium = lockActiveRoom(room);
         Showtime show = showtimes.findByIdForUpdate(id).orElseThrow(ShowtimeService::notFound);
         inventory.configureLockTimeout();
         List<ShowtimeSeat> locked = inventory.findByShowtimeIdForUpdate(id);
         if (locked.stream().anyMatch(s -> s.getStatus() != SeatStatus.AVAILABLE) || showtimes.hasAnyTicket(id)) {
             throw new ApiException(409, "SHOWTIME_CANNOT_BE_MODIFIED", "Suất chiếu đã có vé hoặc ghế không còn trống");
         }
-        Movie movie = activeMovie(r.movieId());
         Instant start = time.startTime(r.startTime()), end = time.endTime(start, movie.getDurationMinutes());
         checkConflict(room, start, end, id);
-        show.update(movie.getId(), start, end);
-        return ShowtimeResponse.from(showtimes.saveAndFlush(show));
+        Long oldMovieId = show.getMovieId();
+        Instant oldStart = show.getStartTime();
+        Instant oldEnd = show.getEndTime();
+        show.update(movie, auditorium, start, end);
+        Showtime saved = showtimes.saveAndFlush(show);
+        auditEvents.record(actorUserId, "SHOWTIME_UPDATED", "SUCCESS", "SHOWTIME", id,
+                "movieId=" + oldMovieId + "->" + movie.getId()
+                        + "; startTime=" + oldStart + "->" + start
+                        + "; endTime=" + oldEnd + "->" + end);
+        return response(saved);
     }
 
     @Transactional(readOnly = true)
-    public ShowtimeResponse get(Long id) {
-        return ShowtimeResponse.from(showtimes.findById(id).orElseThrow(ShowtimeService::notFound));
+    public ShowtimeResponse get(Long id) { return get(id, UserRole.MANAGER); }
+
+    @Transactional(readOnly = true)
+    public ShowtimeResponse get(Long id, UserRole viewer) {
+        Showtime show = showtimes.findById(id).orElseThrow(ShowtimeService::notFound);
+        Auditorium room = auditoriums.findById(show.getAuditoriumId()).orElseThrow(ShowtimeService::notFound);
+        Movie movie = movies.findById(show.getMovieId()).orElseThrow(ShowtimeService::notFound);
+        if (viewer != UserRole.MANAGER && (!room.isActive() || !movie.isActive())) throw notFound();
+        return ShowtimeResponse.from(show);
     }
 
     @Transactional(readOnly = true)
     public PageResponse<ShowtimeResponse> list(String movieId, String auditoriumId, String date, String page, String size) {
+        return list(movieId, auditoriumId, date, page, size, UserRole.MANAGER);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<ShowtimeResponse> list(String movieId, String auditoriumId, String date, String page, String size, UserRole viewer) {
         Long movie = QueryParams.longValue(movieId, "movieId");
         Integer room = QueryParams.integer(auditoriumId, "auditoriumId");
         Integer pageNumber = QueryParams.integer(page, "page"), pageSize = QueryParams.integer(size, "size");
@@ -88,26 +121,22 @@ public class ShowtimeService {
         }
         Instant from = day == null ? null : day.atStartOfDay(ShowtimeTimeService.BUSINESS_ZONE).toInstant();
         Instant until = day == null ? null : day.plusDays(1).atStartOfDay(ShowtimeTimeService.BUSINESS_ZONE).toInstant();
-        Specification<Showtime> spec = (root, query, cb) -> {
-            List<jakarta.persistence.criteria.Predicate> p = new ArrayList<>();
-            if (movie != null) p.add(cb.equal(root.get("movieId"), movie));
-            if (room != null) p.add(cb.equal(root.get("auditoriumId"), room));
-            if (from != null) {
-                p.add(cb.greaterThanOrEqualTo(root.get("startTime"), from));
-                p.add(cb.lessThan(root.get("startTime"), until));
-            }
-            return cb.and(p.toArray(new jakarta.persistence.criteria.Predicate[0]));
-        };
-        return PageResponse.from(showtimes.findAll(spec, PageRequest.of(pageNumber, pageSize,
-                Sort.by(Sort.Order.asc("startTime"), Sort.Order.asc("id")))), ShowtimeResponse::from);
+        var found = showtimes.listing(movie, room, from, until, viewer == UserRole.MANAGER, PageRequest.of(pageNumber, pageSize,
+                Sort.by(Sort.Order.asc("startTime"), Sort.Order.asc("id"))));
+        return PageResponse.from(found, row -> ShowtimeResponse.from(row.getShowtime()));
     }
 
-    private void lockActiveRoom(Integer id) {
+    private ShowtimeResponse response(Showtime show) {
+        return ShowtimeResponse.from(show);
+    }
+
+    private Auditorium lockActiveRoom(Integer id) {
         Auditorium room = auditoriums.findByIdForUpdate(id).orElseThrow(() -> new ApiException(404, "AUDITORIUM_NOT_FOUND", "Không tìm thấy phòng chiếu"));
         if (!room.isActive()) throw new ApiException(422, "AUDITORIUM_INACTIVE", "Phòng chiếu đã ngừng hoạt động");
+        return room;
     }
-    private Movie activeMovie(Long id) {
-        Movie movie = movies.findById(id).orElseThrow(() -> new ApiException(404, "MOVIE_NOT_FOUND", "Không tìm thấy phim"));
+    private Movie lockActiveMovie(Long id) {
+        Movie movie = movies.findByIdForUpdate(id).orElseThrow(() -> new ApiException(404, "MOVIE_NOT_FOUND", "Không tìm thấy phim"));
         if (!movie.isActive()) throw new ApiException(422, "MOVIE_INACTIVE", "Phim đã ngừng chiếu");
         return movie;
     }

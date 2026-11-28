@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping(value = "/api/v1/pricing", produces = "application/json")
-@PreAuthorize("hasAnyRole('STAFF','CUSTOMER')")
+@PreAuthorize("hasAnyRole('STAFF','CUSTOMER','MANAGER')")
 @SecurityRequirement(name = "bearerAuth")
 @io.swagger.v3.oas.annotations.responses.ApiResponses({
   @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -70,7 +70,7 @@ public class PricingQuoteController {
     @Operation(
             summary = "Quote ticket prices per seat; display only, no seats are held",
             description =
-                    "Role: STAFF, CUSTOMER. The backend computes every price from the current"
+                    "Role: STAFF, CUSTOMER, MANAGER. The backend computes every price from the current"
                             + " pricing rules; client prices are never accepted.")
     public ApiResponse<PricingQuoteResponse> quote(
             @Valid @RequestBody PricingQuoteRequest request) {

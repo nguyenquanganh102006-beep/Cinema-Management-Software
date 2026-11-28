@@ -26,6 +26,7 @@ public class BookingService {
     private final PricingService pricing;
     private final BookingCodeGenerator bookingCodes;
     private final Clock clock;
+    private final ShowtimeSaleGuard saleGuard;
 
     public BookingService(
             BookingRepository bookings,
@@ -39,7 +40,8 @@ public class BookingService {
             HoldOwnershipService ownership,
             PricingService pricing,
             BookingCodeGenerator bookingCodes,
-            Clock clock) {
+            Clock clock,
+            ShowtimeSaleGuard saleGuard) {
         this.bookings = bookings;
         this.bookingSeats = bookingSeats;
         this.bookingConcessions = bookingConcessions;
@@ -52,15 +54,17 @@ public class BookingService {
         this.pricing = pricing;
         this.bookingCodes = bookingCodes;
         this.clock = clock;
+        this.saleGuard = saleGuard;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public BookingResponse create(CreateBookingRequest request, SessionPrincipal principal) {
         String owner = ownership.owner(principal);
         SeatHoldService.validateShowtimeId(request.showtimeId());
+        saleGuard.lockSaleable(request.showtimeId());
         SeatHoldService.validateToken(request.holdToken());
 
-        if (bookings.existsByHoldToken(request.holdToken())) throw alreadyExists();
+        rejectExisting(request.holdToken(), owner, principal);
 
         // Scalar projection only: loading ShowtimeSeat Entities here would leave stale rows in
         // the persistence context before lockAndValidateHold takes the inventory locks.
@@ -76,7 +80,7 @@ public class BookingService {
 
         // A concurrent retry for the same token waits on the seat locks above, then sees the
         // committed Booking in this fresh READ_COMMITTED statement.
-        if (bookings.existsByHoldToken(request.holdToken())) throw alreadyExists();
+        rejectExisting(request.holdToken(), owner, principal);
 
         Showtime showtime =
                 showtimes
@@ -92,9 +96,10 @@ public class BookingService {
                                 () ->
                                         new ApiException(
                                                 404, "MOVIE_NOT_FOUND", "Không tìm thấy phim"));
+        saleGuard.requireSaleable(request.showtimeId());
 
         Instant ageConfirmedAt = null;
-        if (principal.role() == UserRole.CUSTOMER && movie.getAgeRating() != AgeRating.P) {
+        if (principal.role() == UserRole.CUSTOMER && showtime.getAgeRatingSnapshot() != AgeRating.P) {
             if (!Boolean.TRUE.equals(request.ageConfirmed()))
                 throw new ApiException(
                         422,
@@ -179,7 +184,7 @@ public class BookingService {
                 ticketLines,
                 concessionLines,
                 booking.getTotalAmount(),
-                group.getFirst().getHoldUntil());
+                group.getFirst().getHoldUntil(), booking.getShowtimeId(), clock.instant(), booking.getChannel().name());
     }
 
     @Transactional(readOnly = true)
@@ -217,7 +222,7 @@ public class BookingService {
                 tickets,
                 concessions,
                 booking.getTotalAmount(),
-                holdUntil);
+                holdUntil, booking.getShowtimeId(), clock.instant(), booking.getChannel().name());
     }
 
     private static void validateUniqueItems(List<CreateBookingRequest.ConcessionItem> lines) {
@@ -262,9 +267,14 @@ public class BookingService {
         return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
     }
 
-    private static ApiException alreadyExists() {
-        return new ApiException(
-                409, "BOOKING_ALREADY_EXISTS", "Phiên giữ ghế này đã có Booking");
+    private void rejectExisting(String holdToken, String owner, SessionPrincipal principal) {
+        bookings.findByHoldToken(holdToken).ifPresent(existing -> {
+            // A duplicate remains a conflict. Only its original hold session may discover
+            // the ID for readback; another session knowing a token gets no booking metadata.
+            Map<String, String> details = ownedBy(existing, principal) && owner.equals(existing.getHoldOwner())
+                ? Map.of("bookingId", existing.getId().toString()) : Map.of();
+            throw new ApiException(409, "BOOKING_ALREADY_EXISTS", "Phiên giữ ghế này đã có Booking", details);
+        });
     }
 
     private static ApiException notFound() {

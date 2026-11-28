@@ -1,0 +1,36 @@
+import { chromium, expect } from '../../frontend/node_modules/@playwright/test/index.mjs';
+import { mkdir } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+const output = new URL('../../docs/testing/screenshots/', import.meta.url);
+await mkdir(output, { recursive: true });
+const browser = await chromium.launch();
+try {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const errors=[];
+  page.on('pageerror', error=>errors.push(error.message));
+  await page.goto('http://localhost:3003');
+  await page.getByLabel('Tên đăng nhập hoặc email').fill('customer01');
+  await page.getByLabel('Mật khẩu', { exact: true }).fill('Reference123!');
+  await page.getByRole('button', { name: 'Đăng nhập', exact: false }).click();
+  await expect(page.getByText('Dữ liệu mô phỏng', {exact:true})).toBeVisible();
+  await page.getByRole('link', { name:'Chuyến tàu ánh sáng' }).click();
+  await page.getByRole('button', { name:'Chọn suất' }).click();
+  await page.getByRole('button', { name:'B5 · SWEETBOX · Trống' }).click();
+  await page.getByRole('button', { name:'Giữ các ghế đã chọn' }).click();
+  await expect(page.getByRole('link', { name:'Tiếp tục thanh toán' })).toBeVisible();
+  await page.screenshot({ path:fileURLToPath(new URL('customer-seats-desktop.png',output)), fullPage:true });
+  await page.setViewportSize({width:360,height:900});
+  await page.screenshot({ path:fileURLToPath(new URL('customer-seats-mobile.png',output)), fullPage:true });
+  await page.getByRole('link', { name:'Tiếp tục thanh toán' }).click();
+  await page.getByRole('checkbox', { name:'Tôi cam kết đủ tuổi' }).check();
+  await page.getByRole('button', { name:'Tạo đơn · lấy tổng thanh toán' }).click();
+  await page.getByRole('button', { name:'Tạo liên kết VNPay' }).click();
+  const popup = await Promise.all([context.waitForEvent('page'),page.getByRole('link',{name:'Mở VNPay'}).click()]).then(([p])=>p);
+  await popup.getByRole('button',{name:'Mô phỏng IPN thành công'}).click();
+  await page.bringToFront();
+  await expect(page.getByRole('button',{name:'In vé / hóa đơn'})).toBeVisible();
+  await page.screenshot({path:fileURLToPath(new URL('customer-paid-mobile.png',output)),fullPage:true});
+  if(errors.length)throw new Error(errors.join('\n'));
+  console.log('MSW browser worker smoke passed: Sweetbox, mobile, separate payment tab, BroadcastChannel confirmation, issued Ticket QR.');
+} finally {await browser.close();}

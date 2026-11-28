@@ -17,4 +17,5 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
     Optional<Booking> findByBookingCode(String bookingCode);
 
     boolean existsByHoldToken(String holdToken);
+    Optional<Booking> findByHoldToken(String holdToken);
 }

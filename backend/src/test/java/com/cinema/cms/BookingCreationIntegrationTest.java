@@ -379,11 +379,25 @@ class BookingCreationIntegrationTest extends SeatHoldTestSupport {
     void secondBookingForTheSameHoldReturnsConflict() throws Exception {
         var held = holds.hold(show, new HoldSeatsRequest(List.of(a1)), staff);
 
-        postBooking(staffJwt, bookingBody(show, held.holdToken(), null, null))
-                .andExpect(status().isCreated());
+        String created = postBooking(staffJwt, bookingBody(show, held.holdToken(), null, null))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String id = mapper.readTree(created).path("data").path("bookingId").asText();
         postBooking(staffJwt, bookingBody(show, held.holdToken(), null, null))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("BOOKING_ALREADY_EXISTS"));
+                .andExpect(jsonPath("$.code").value("BOOKING_ALREADY_EXISTS"))
+                .andExpect(jsonPath("$.details.bookingId").value(id));
+        // Knowledge of another session's hold token must not disclose its booking ID.
+        postBooking(customerJwt, bookingBody(show, held.holdToken(), null, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.details.bookingId").doesNotExist());
+        String anotherSession = jwt.issue(users.findById(staff.userId()).orElseThrow());
+        postBooking(anotherSession, bookingBody(show, held.holdToken(), null, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.details.bookingId").doesNotExist());
+        clock.set(clock.instant().plusSeconds(400));
+        postBooking(staffJwt, bookingBody(show, held.holdToken(), null, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.details.bookingId").value(id));
     }
 
     @Test
@@ -502,13 +516,17 @@ class BookingCreationIntegrationTest extends SeatHoldTestSupport {
     private Long showtime(Integer roomId, Long movieId, Timestamp start) {
         Long id =
                 jdbc.queryForObject(
-                        "insert into showtimes(movie_id,auditorium_id,start_time,end_time,base_price)"
-                                + " values (?,?,?,?,70000) returning showtime_id",
+                        "insert into showtimes(movie_id,auditorium_id,start_time,end_time,base_price,"
+                                + "movie_title_snapshot,age_rating_snapshot,duration_minutes_snapshot,"
+                                + "auditorium_name_snapshot,auditorium_type_snapshot) "
+                                + "select m.movie_id,a.auditorium_id,?,?,70000,m.title,m.age_rating,"
+                                + "m.duration_minutes,a.name,a.auditorium_type::text "
+                                + "from movies m cross join auditoriums a where m.movie_id=? and a.auditorium_id=? returning showtime_id",
                         Long.class,
-                        movieId,
-                        roomId,
                         start,
-                        Timestamp.from(start.toInstant().plusSeconds(8100)));
+                        Timestamp.from(start.toInstant().plusSeconds(8100)),
+                        movieId,
+                        roomId);
         jdbc.update(
                 "insert into showtime_seats(showtime_id,seat_id) select ?,seat_id from seats where"
                         + " auditorium_id=?",
